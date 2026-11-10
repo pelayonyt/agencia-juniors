@@ -25,6 +25,13 @@ const compressImage = (file, callback) => {
   };
 };
 
+const getRank = (followers) => {
+  if (followers < 100) return "Don Nadie";
+  if (followers < 500) return "Aspirante";
+  if (followers < 1500) return "Promesa";
+  return "Élite";
+};
+
 const AdminPostControls = ({ postId, likedByArray }) => {
   const [amount, setAmount] = useState(10);
   const addFakeLikes = async () => {
@@ -65,12 +72,11 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
   );
 };
 
-// --- COMPONENTE DE PUBLICACIÓN ---
 const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost }) => {
   const [showHeart, setShowHeart] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
-  const [expandedComments, setExpandedComments] = useState(false); // NUEVO: Control de expansión
+  const [expandedComments, setExpandedComments] = useState(false); 
   
   const author = usersMap[post.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
   const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
@@ -101,7 +107,7 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
     };
     await updateDoc(doc(db, 'posts', post.id), { comments: [...commentsArray, newComment] });
     setCommentText('');
-    setExpandedComments(true); // Expande automáticamente al comentar para que lo vea
+    setExpandedComments(true); 
   };
 
   const handleDeleteComment = async (commentId) => {
@@ -110,9 +116,10 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
     }
   };
 
-  // Lógica de "Leer más": Coge solo los últimos 2 si no está expandido
+  // NUEVA LÓGICA DE COMENTARIOS: El más nuevo siempre arriba.
+  const reversedComments = [...commentsArray].reverse();
   const COMMENTS_LIMIT = 2;
-  const visibleComments = expandedComments ? commentsArray : commentsArray.slice(-COMMENTS_LIMIT);
+  const visibleComments = expandedComments ? reversedComments : reversedComments.slice(0, COMMENTS_LIMIT);
 
   return (
     <div className="post-card">
@@ -153,20 +160,17 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
         {isAdmin && <AdminPostControls postId={post.id} likedByArray={likedByArray} />}
       </div>
 
-      {/* SECCIÓN DE COMENTARIOS */}
       {showComments && (
         <div className="comments-section">
+          <form className="comment-input-row" onSubmit={handleAddComment} style={{marginBottom: '10px'}}>
+            <input type="text" className="comment-input" placeholder="Añade un comentario..." value={commentText} onChange={(e) => setCommentText(e.target.value)} />
+            <button type="submit" className="comment-submit-btn" disabled={!commentText.trim()}>Enviar</button>
+          </form>
+
           {commentsArray.length === 0 ? (
             <p style={{fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center'}}>Sé la primera en comentar.</p>
           ) : (
             <>
-              {/* Botón Ver Más */}
-              {commentsArray.length > COMMENTS_LIMIT && (
-                <button className="view-more-comments" onClick={() => setExpandedComments(!expandedComments)}>
-                  {expandedComments ? 'Ocultar comentarios' : `Ver los ${commentsArray.length} comentarios`}
-                </button>
-              )}
-              
               {visibleComments.map(comment => {
                 const commentAuthor = usersMap[comment.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
                 return (
@@ -182,21 +186,20 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
                   </div>
                 );
               })}
+              
+              {commentsArray.length > COMMENTS_LIMIT && (
+                <button className="view-more-comments" onClick={() => setExpandedComments(!expandedComments)}>
+                  {expandedComments ? 'Ocultar comentarios' : `Ver los ${commentsArray.length - COMMENTS_LIMIT} comentarios anteriores`}
+                </button>
+              )}
             </>
           )}
-          
-          <form className="comment-input-row" onSubmit={handleAddComment}>
-            <input type="text" className="comment-input" placeholder="Escribe un comentario..." value={commentText} onChange={(e) => setCommentText(e.target.value)} />
-            <button type="submit" className="comment-submit-btn" disabled={!commentText.trim()}>Enviar</button>
-          </form>
         </div>
       )}
     </div>
   );
 };
 
-
-// --- 1. FEED ---
 const Feed = ({ user, isAdmin }) => {
   const [posts, setPosts] = useState([]);
   const [usersMap, setUsersMap] = useState({});
@@ -298,7 +301,6 @@ const Feed = ({ user, isAdmin }) => {
   );
 };
 
-// --- 2. CAMPAÑAS ---
 const Campanas = ({ isAdmin, user }) => {
   const [campaigns, setCampaigns] = useState([]);
   const [usersMap, setUsersMap] = useState({});
@@ -389,7 +391,6 @@ const Campanas = ({ isAdmin, user }) => {
   );
 };
 
-// --- 3. RANKING ---
 const Ranking = () => {
   const [usersList, setUsersList] = useState([]);
   useEffect(() => {
@@ -422,7 +423,6 @@ const Ranking = () => {
   );
 };
 
-// --- 4. PANEL DE CONTROL DIOS ---
 const AdminControl = () => {
   const [usersList, setUsersList] = useState([]);
   useEffect(() => {
@@ -449,7 +449,6 @@ const AdminControl = () => {
   );
 };
 
-// --- 5. PERFIL ---
 const Perfil = ({ user, isAdmin, handleLogout }) => {
   const [profileData, setProfileData] = useState({ name: '', photoURL: '', followers: 0 });
   const [userPosts, setUserPosts] = useState([]);
@@ -460,18 +459,15 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
 
   useEffect(() => {
     if (!user) return;
-    
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
       setUsersMap(uMap);
     });
-
     const userRef = doc(db, 'users', user.uid);
     const unsubUser = onSnapshot(userRef, (d) => {
       if (d.exists()) { setProfileData(d.data()); if (!newName) setNewName(d.data().name || ''); } 
       else setDoc(userRef, { name: "Nueva Influencer", photoURL: "", followers: 0, email: user.email });
     });
-    
     const q = query(collection(db, 'posts'), where("authorId", "==", user.uid), orderBy('createdAt', 'desc'));
     const unsubPosts = onSnapshot(q, (s) => setUserPosts(s.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     
@@ -511,6 +507,10 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
           <div className="profile-avatar-overlay">📷</div>
         </div>
         <input type="file" accept="image/*" ref={fileInputRef} style={{display: 'none'}} onChange={handlePhotoChange} />
+        
+        {/* AQUÍ ESTÁ EL RANGO DINÁMICO */}
+        <div className="profile-rank">{getRank(profileData.followers || 0)}</div>
+
         {isEditingName ? (
           <div className="profile-name-edit">
             <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} style={{padding: '8px', width: '200px'}} />
@@ -541,7 +541,6 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
   );
 };
 
-// --- NAVEGACIÓN Y APP PRINCIPAL ---
 const BottomNav = ({ isAdmin }) => {
   const location = useLocation();
   const currentPath = location.pathname;
