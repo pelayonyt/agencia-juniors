@@ -25,7 +25,6 @@ const compressImage = (file, callback) => {
   };
 };
 
-// FUNCIÓN GLOBAL DE RANGO
 const getRank = (followers) => {
   if (followers < 100) return "Don Nadie";
   if (followers < 500) return "Aspirante";
@@ -73,7 +72,6 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
   );
 };
 
-// --- COMPONENTE DE PUBLICACIÓN ---
 const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost }) => {
   const [showHeart, setShowHeart] = useState(false);
   const [showComments, setShowComments] = useState(false);
@@ -128,7 +126,6 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
         <img src={author.photoURL} alt="Avatar" className="post-avatar" />
         <div style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap'}}>
           <span className="post-author">{author.name}</span>
-          {/* ETIQUETA PÚBLICA DE RANGO */}
           <span className="mini-rank">{getRank(author.followers || 0)}</span>
         </div>
         {post.campaignName && post.campaignName !== 'General' && <span className="post-tag">{post.campaignName}</span>}
@@ -344,6 +341,12 @@ const Campanas = ({ isAdmin, user }) => {
     }
   };
 
+  const handleDeleteCampaign = async (campId) => {
+    if (window.confirm("¿Seguro que quieres eliminar esta misión permanentemente?")) {
+      await deleteDoc(doc(db, 'campaigns', campId));
+    }
+  };
+
   return (
     <div>
       <h1 className="page-title">Campañas</h1>
@@ -378,9 +381,15 @@ const Campanas = ({ isAdmin, user }) => {
 
           return (
             <div key={camp.id} className="campaign-card">
-              <div className="campaign-header">
-                <h2 className="campaign-title">{camp.title}</h2>
-                {camp.reward && <span className="campaign-reward">{camp.reward}</span>}
+              <div className="campaign-header" style={{alignItems: 'center'}}>
+                <h2 className="campaign-title" style={{margin: 0}}>{camp.title}</h2>
+                <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
+                  {camp.reward && <span className="campaign-reward">{camp.reward}</span>}
+                  {/* BOTÓN DE BORRAR CAMPAÑA (SOLO ADMIN) */}
+                  {isAdmin && (
+                    <button className="delete-post-btn" onClick={() => handleDeleteCampaign(camp.id)} style={{margin: 0}}>🗑️</button>
+                  )}
+                </div>
               </div>
               <p className="campaign-desc">{camp.description}</p>
               <div className="reaction-row" style={{flexDirection: 'column', alignItems: 'flex-start', gap: '8px'}}>
@@ -421,7 +430,6 @@ const Ranking = () => {
             <div className="ranking-info">
               <div style={{display: 'flex', alignItems: 'center'}}>
                 <span className="ranking-name">{u.name || u.email.split('@')[0]}</span>
-                {/* ETIQUETA PÚBLICA DE RANGO EN EL RANKING */}
                 <span className="mini-rank">{getRank(u.followers || 0)}</span>
               </div>
               <span className="ranking-score">{u.followers || 0} seguidores</span>
@@ -513,7 +521,7 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
 
   return (
     <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center'}}>
-      <h1 className="page-title">El Ego</h1>
+      <h1 className="page-title">Tu Perfil</h1>
       <div className="profile-header">
         <div className="profile-avatar-container" onClick={() => fileInputRef.current.click()}>
           <img src={profileData.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} alt="Avatar" className="profile-avatar" />
