@@ -606,3 +606,21 @@ input:focus {
   color: #D32F2F;
   font-weight: 500;
 }
+
+/* --- BOTÓN DE BORRAR PUBLICACIÓN --- */
+.delete-post-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #D32F2F;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 5px;
+  opacity: 0.6;
+  transition: all 0.2s ease;
+}
+
+.delete-post-btn:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}

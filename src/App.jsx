@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where, deleteDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import './App.css';
 
@@ -66,37 +66,32 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
 };
 
 
-// --- 1. FEED (Con Filtros de Campañas) ---
+// --- 1. FEED ---
 const Feed = ({ user, isAdmin }) => {
   const [posts, setPosts] = useState([]);
   const [usersMap, setUsersMap] = useState({});
-  const [campaigns, setCampaigns] = useState([]); // Guardamos las campañas para los filtros
+  const [campaigns, setCampaigns] = useState([]);
   
   const [text, setText] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Estados para los filtros
   const [activeFilter, setActiveFilter] = useState('Todas');
   const [selectedCampaignForUpload, setSelectedCampaignForUpload] = useState('General');
 
   useEffect(() => {
     if (!user) return;
-    
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
       setUsersMap(uMap);
     });
-    
     const unsubPosts = onSnapshot(query(collection(db, 'posts'), orderBy('createdAt', 'desc')), (snap) => {
       setPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-
     const unsubCamps = onSnapshot(query(collection(db, 'campaigns'), orderBy('createdAt', 'desc')), (snap) => {
       setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-
     return () => { unsubUsers(); unsubPosts(); unsubCamps(); };
   }, [user]);
 
@@ -105,12 +100,7 @@ const Feed = ({ user, isAdmin }) => {
     setUploading(true);
     const savePost = async (photoBase64 = null) => {
       await addDoc(collection(db, 'posts'), {
-        text: text, 
-        imageURL: photoBase64, 
-        authorId: user.uid, 
-        campaignName: selectedCampaignForUpload, // Guardamos a qué campaña pertenece
-        likedBy: [], 
-        createdAt: serverTimestamp()
+        text: text, imageURL: photoBase64, authorId: user.uid, campaignName: selectedCampaignForUpload, likedBy: [], createdAt: serverTimestamp()
       });
       setText(''); setImageFile(null); setSelectedCampaignForUpload('General'); setUploading(false);
     };
@@ -126,39 +116,37 @@ const Feed = ({ user, isAdmin }) => {
     }
   };
 
-  // Filtramos las publicaciones según la pestaña seleccionada
-  const displayedPosts = activeFilter === 'Todas' 
-    ? posts 
-    : posts.filter(post => post.campaignName === activeFilter);
+  // Función para borrar publicación
+  const handleDeletePost = async (postId) => {
+    if (window.confirm("¿Seguro que quieres eliminar esta publicación?")) {
+      await deleteDoc(doc(db, 'posts', postId));
+    }
+  };
+
+  const displayedPosts = activeFilter === 'Todas' ? posts : posts.filter(post => post.campaignName === activeFilter);
 
   return (
     <div>
       <h1 className="page-title">Feed</h1>
 
-      {/* BARRA DE FILTROS SUPERIOR */}
       <div className="horizontal-scroll">
         <div className={`tag-pill ${activeFilter === 'Todas' ? 'active' : ''}`} onClick={() => setActiveFilter('Todas')}>Todas</div>
         <div className={`tag-pill ${activeFilter === 'General' ? 'active' : ''}`} onClick={() => setActiveFilter('General')}>General</div>
         {campaigns.map(camp => (
-          <div key={camp.id} className={`tag-pill ${activeFilter === camp.title ? 'active' : ''}`} onClick={() => setActiveFilter(camp.title)}>
-            {camp.title}
-          </div>
+          <div key={camp.id} className={`tag-pill ${activeFilter === camp.title ? 'active' : ''}`} onClick={() => setActiveFilter(camp.title)}>{camp.title}</div>
         ))}
       </div>
 
       <div className="create-post-card">
-        <textarea className="post-input" placeholder="¿Qué quieres compartir con la élite hoy?" value={text} onChange={(e) => setText(e.target.value)} rows="3" />
+        <textarea className="post-input" placeholder="¿Qué quieres compartir hoy?" value={text} onChange={(e) => setText(e.target.value)} rows="3" />
         {imageFile && <p style={{fontSize: '0.8rem', color: '#4A3265', marginBottom: '10px'}}>✓ Foto adjuntada</p>}
         
-        {/* SELECTOR DE CAMPAÑA PARA PUBLICAR */}
         <div style={{marginBottom: '15px'}}>
           <span style={{fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '5px'}}>Etiqueta tu publicación:</span>
           <div className="horizontal-scroll" style={{marginBottom: 0, paddingBottom: '5px'}}>
             <div className={`tag-pill ${selectedCampaignForUpload === 'General' ? 'active' : ''}`} onClick={() => setSelectedCampaignForUpload('General')}>General</div>
             {campaigns.map(camp => (
-              <div key={camp.id} className={`tag-pill ${selectedCampaignForUpload === camp.title ? 'active' : ''}`} onClick={() => setSelectedCampaignForUpload(camp.title)}>
-                {camp.title}
-              </div>
+              <div key={camp.id} className={`tag-pill ${selectedCampaignForUpload === camp.title ? 'active' : ''}`} onClick={() => setSelectedCampaignForUpload(camp.title)}>{camp.title}</div>
             ))}
           </div>
         </div>
@@ -166,9 +154,7 @@ const Feed = ({ user, isAdmin }) => {
         <div className="post-actions">
           <div className="upload-photo-btn" onClick={() => fileInputRef.current.click()}>📷 Foto</div>
           <input type="file" accept="image/*" ref={fileInputRef} style={{display:'none'}} onChange={(e) => setImageFile(e.target.files[0])} />
-          <button onClick={handlePublish} className="login-btn" style={{marginTop:0, padding:'10px 20px'}} disabled={uploading}>
-            {uploading ? '...' : 'Publicar'}
-          </button>
+          <button onClick={handlePublish} className="login-btn" style={{marginTop:0, padding:'10px 20px'}} disabled={uploading}>{uploading ? '...' : 'Publicar'}</button>
         </div>
       </div>
 
@@ -193,9 +179,11 @@ const Feed = ({ user, isAdmin }) => {
               <div className="post-header">
                 <img src={author.photoURL} alt="Avatar" className="post-avatar" />
                 <span className="post-author">{author.name}</span>
-                {/* ETIQUETA VISUAL EN EL POST */}
-                {post.campaignName && post.campaignName !== 'General' && (
-                  <span className="post-tag">{post.campaignName}</span>
+                {post.campaignName && post.campaignName !== 'General' && <span className="post-tag">{post.campaignName}</span>}
+                
+                {/* BOTÓN DE BORRAR: Visible si eres la creadora del post o eres admin */}
+                {(post.authorId === user.uid || isAdmin) && (
+                  <button className="delete-post-btn" onClick={() => handleDeletePost(post.id)}>🗑️</button>
                 )}
               </div>
               {post.imageURL && <img src={post.imageURL} alt="Post" className="post-image" />}
@@ -216,35 +204,36 @@ const Feed = ({ user, isAdmin }) => {
   );
 };
 
-// --- 2. CAMPAÑAS (Con Reacciones) ---
+// --- 2. CAMPAÑAS ---
 const Campanas = ({ isAdmin, user }) => {
   const [campaigns, setCampaigns] = useState([]);
+  const [usersMap, setUsersMap] = useState({});
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [reward, setReward] = useState('');
 
   useEffect(() => {
+    // Traemos también a las usuarias para saber sus nombres
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+      const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
+      setUsersMap(uMap);
+    });
     const q = query(collection(db, 'campaigns'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(q, (snap) => {
+    const unsubCamps = onSnapshot(q, (snap) => {
       setCampaigns(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    return () => unsub();
+    return () => { unsubUsers(); unsubCamps(); };
   }, []);
 
   const handleCreateCampaign = async (e) => {
     e.preventDefault();
     if (!title || !desc) return;
     await addDoc(collection(db, 'campaigns'), {
-      title: title,
-      description: desc,
-      reward: reward || "Reputación",
-      reactions: [], // Array para guardar quién se apunta
-      createdAt: serverTimestamp()
+      title: title, description: desc, reward: reward || "Reputación", reactions: [], createdAt: serverTimestamp()
     });
     setTitle(''); setDesc(''); setReward('');
   };
 
-  // Función para apuntarse a una misión
   const toggleReaction = async (campId, currentReactions) => {
     const campRef = doc(db, 'campaigns', campId);
     if (currentReactions.includes(user.uid)) {
@@ -277,6 +266,15 @@ const Campanas = ({ isAdmin, user }) => {
         campaigns.map(camp => {
           const reactionsArray = Array.isArray(camp.reactions) ? camp.reactions : [];
           const isReactedByMe = reactionsArray.includes(user.uid);
+          
+          // Lógica de nombres de quién se apunta
+          let likersText = '';
+          if (reactionsArray.length > 0) {
+            const names = reactionsArray.map(uid => uid === user.uid ? "ti" : (usersMap[uid]?.name?.split(' ')[0] || "Alguien"));
+            if (names.length === 1) likersText = `Apuntado por ${names[0]}`;
+            else if (names.length === 2) likersText = `Apuntado por ${names[0]} y ${names[1]}`;
+            else likersText = `Apuntado por ${names[0]}, ${names[1]} y ${names.length - 2} más`;
+          }
 
           return (
             <div key={camp.id} className="campaign-card">
@@ -286,14 +284,11 @@ const Campanas = ({ isAdmin, user }) => {
               </div>
               <p className="campaign-desc">{camp.description}</p>
               
-              {/* BOTÓN DE INTERACCIÓN SUTIL */}
-              <div className="reaction-row">
-                <button 
-                  className={`reaction-btn ${isReactedByMe ? 'active' : ''}`}
-                  onClick={() => toggleReaction(camp.id, reactionsArray)}
-                >
+              <div className="reaction-row" style={{flexDirection: 'column', alignItems: 'flex-start', gap: '8px'}}>
+                <button className={`reaction-btn ${isReactedByMe ? 'active' : ''}`} onClick={() => toggleReaction(camp.id, reactionsArray)}>
                   🔥 Me apunto <span>({reactionsArray.length})</span>
                 </button>
+                {likersText && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '500'}}>{likersText}</div>}
               </div>
             </div>
           );
