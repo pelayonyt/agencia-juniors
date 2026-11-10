@@ -1,35 +1,142 @@
 import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-import { doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
-import { auth, db } from "./firebase"; // Ya no importamos storage
+import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where } from "firebase/firestore";
+import { auth, db } from "./firebase";
 import './App.css';
 
-// --- VISTAS ---
-const Feed = () => (
-  <div>
-    <h1 className="page-title">Feed</h1>
-    <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>Aquí irán las publicaciones de las demás influencers.</p>
-  </div>
-);
+// --- MAGIA ANTI-PAGOS: COMPRESOR DE IMÁGENES ---
+// Esta función la usamos tanto para el avatar como para las fotos del feed
+const compressImage = (file, callback) => {
+  const reader = new FileReader();
+  reader.readAsDataURL(file);
+  reader.onload = (event) => {
+    const img = new Image();
+    img.src = event.target.result;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX_WIDTH = 600; // Un poco más grande para el feed, pero segura
+      const MAX_HEIGHT = 600;
+      let width = img.width;
+      let height = img.height;
 
-const Campanas = () => (
-  <div>
-    <h1 className="page-title">Campañas</h1>
-    <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>Tablón de misiones activas.</p>
-  </div>
-);
+      if (width > height) {
+        if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+      } else {
+        if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      callback(canvas.toDataURL('image/jpeg', 0.6)); // Devuelve el texto Base64
+    };
+  };
+};
 
-const Ranking = () => (
-  <div>
-    <h1 className="page-title">Top Talentos</h1>
-    <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>Clasificación en tiempo real.</p>
-  </div>
-);
 
-// --- PERFIL (MODIFICADO PARA NO PAGAR) ---
+// --- 1. VISTA DEL FEED ---
+const Feed = ({ user }) => {
+  const [posts, setPosts] = useState([]);
+  const [text, setText] = useState('');
+  const [imageFile, setImageFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [userData, setUserData] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // Traer los datos de la niña actual y todas las publicaciones
+  useEffect(() => {
+    if (!user) return;
+    const unsubUser = onSnapshot(doc(db, 'users', user.uid), (d) => {
+      if (d.exists()) setUserData(d.data());
+    });
+
+    const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
+    const unsubPosts = onSnapshot(q, (snapshot) => {
+      setPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { unsubUser(); unsubPosts(); };
+  }, [user]);
+
+  const handlePublish = async () => {
+    if (!text && !imageFile) return;
+    setUploading(true);
+
+    const savePostToDB = async (photoBase64 = null) => {
+      await addDoc(collection(db, 'posts'), {
+        text: text,
+        imageURL: photoBase64,
+        authorId: user.uid,
+        authorName: userData?.name || "Influencer",
+        authorAvatar: userData?.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png",
+        likes: 0,
+        createdAt: serverTimestamp()
+      });
+      setText('');
+      setImageFile(null);
+      setUploading(false);
+    };
+
+    if (imageFile) {
+      compressImage(imageFile, savePostToDB);
+    } else {
+      savePostToDB();
+    }
+  };
+
+  return (
+    <div>
+      <h1 className="page-title">Feed</h1>
+      
+      {/* Caja para crear nueva publicación */}
+      <div className="create-post-card">
+        <textarea 
+          className="post-input" 
+          placeholder="¿Qué quieres compartir con la élite hoy?" 
+          value={text} 
+          onChange={(e) => setText(e.target.value)}
+          rows="3"
+        />
+        {imageFile && <p style={{fontSize: '0.8rem', color: '#4A3265', marginBottom: '10px'}}>✓ Foto adjuntada</p>}
+        <div className="post-actions">
+          <div className="upload-photo-btn" onClick={() => fileInputRef.current.click()}>
+            📷 Añadir foto
+          </div>
+          <input type="file" accept="image/*" ref={fileInputRef} style={{display: 'none'}} onChange={(e) => setImageFile(e.target.files[0])} />
+          <button onClick={handlePublish} className="login-btn" style={{marginTop: 0, padding: '10px 20px'}} disabled={uploading}>
+            {uploading ? 'Subiendo...' : 'Publicar'}
+          </button>
+        </div>
+      </div>
+
+      {/* Muro de publicaciones */}
+      {posts.map(post => (
+        <div key={post.id} className="post-card">
+          <div className="post-header">
+            <img src={post.authorAvatar} alt="Avatar" className="post-avatar" />
+            <span className="post-author">{post.authorName}</span>
+          </div>
+          {post.imageURL && <img src={post.imageURL} alt="Post" className="post-image" />}
+          {post.text && (
+            <div className="post-body">
+              <p className="post-text">{post.text}</p>
+            </div>
+          )}
+          <div className="post-footer">
+            <span style={{cursor: 'pointer'}}>🤍 {post.likes} Likes</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+
+// --- 2. VISTA DEL PERFIL ---
 const Perfil = ({ user, handleLogout }) => {
   const [profileData, setProfileData] = useState({ name: '', photoURL: '', followers: 0 });
+  const [userPosts, setUserPosts] = useState([]);
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -37,70 +144,36 @@ const Perfil = ({ user, handleLogout }) => {
 
   useEffect(() => {
     if (!user) return;
-    const userRef = doc(db, 'users', user.uid);
     
-    const unsubscribe = onSnapshot(userRef, (docSnap) => {
+    // 1. Escuchar datos del usuario
+    const userRef = doc(db, 'users', user.uid);
+    const unsubUser = onSnapshot(userRef, (docSnap) => {
       if (docSnap.exists()) {
         setProfileData(docSnap.data());
         if (!newName) setNewName(docSnap.data().name || '');
       } else {
-        setDoc(userRef, {
-          name: "Nueva Influencer",
-          photoURL: "",
-          followers: 0,
-          email: user.email
-        });
+        setDoc(userRef, { name: "Nueva Influencer", photoURL: "", followers: 0, email: user.email });
       }
     });
-    return () => unsubscribe();
+
+    // 2. Escuchar SOLO las publicaciones de esta niña para su cuadrícula
+    const q = query(collection(db, 'posts'), where("authorId", "==", user.uid), orderBy('createdAt', 'desc'));
+    const unsubPosts = onSnapshot(q, (snapshot) => {
+      setUserPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { unsubUser(); unsubPosts(); };
   }, [user]);
 
-  // MAGIA ANTI-PAGOS: Comprime la imagen a texto
   const handlePhotoChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     setUploading(true);
-
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target.result;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 250; // La hacemos pequeñita para que no pese
-        const MAX_HEIGHT = 250;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-
-        // Convertimos la imagen a texto (Base64)
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-
-        // La guardamos en Firestore gratis
-        updateDoc(doc(db, 'users', user.uid), { photoURL: dataUrl })
-          .then(() => setUploading(false))
-          .catch(() => {
-            alert("Error al subir.");
-            setUploading(false);
-          });
-      };
-    };
+    compressImage(file, (base64) => {
+      updateDoc(doc(db, 'users', user.uid), { photoURL: base64 })
+        .then(() => setUploading(false))
+        .catch(() => { alert("Error al subir."); setUploading(false); });
+    });
   };
 
   const handleSaveName = async () => {
@@ -117,29 +190,15 @@ const Perfil = ({ user, handleLogout }) => {
         <div className="profile-avatar-container" onClick={() => fileInputRef.current.click()}>
           <img 
             src={profileData.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} 
-            alt="Avatar" 
-            className="profile-avatar" 
-            style={{ opacity: uploading ? 0.5 : 1 }}
+            alt="Avatar" className="profile-avatar" style={{ opacity: uploading ? 0.5 : 1 }}
           />
           <div className="profile-avatar-overlay">📷</div>
         </div>
-        <input 
-          type="file" 
-          accept="image/*" 
-          ref={fileInputRef} 
-          style={{display: 'none'}} 
-          onChange={handlePhotoChange} 
-        />
-        <p style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '15px'}}>Toca la foto para cambiarla</p>
+        <input type="file" accept="image/*" ref={fileInputRef} style={{display: 'none'}} onChange={handlePhotoChange} />
 
         {isEditingName ? (
           <div className="profile-name-edit">
-            <input 
-              type="text" 
-              value={newName} 
-              onChange={(e) => setNewName(e.target.value)} 
-              style={{padding: '8px', width: '200px'}}
-            />
+            <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} style={{padding: '8px', width: '200px'}} />
             <button onClick={handleSaveName} className="login-btn" style={{marginTop: '0', padding: '10px 15px'}}>✓</button>
           </div>
         ) : (
@@ -156,9 +215,22 @@ const Perfil = ({ user, handleLogout }) => {
           <div className="stat-label">Seguidores</div>
         </div>
         <div className="stat-box">
-          <div className="stat-number">0</div>
+          <div className="stat-number">{userPosts.length}</div>
           <div className="stat-label">Publicaciones</div>
         </div>
+      </div>
+
+      {/* Cuadrícula de fotos estilo Instagram */}
+      <div className="profile-grid">
+        {userPosts.map(post => (
+          post.imageURL ? (
+            <img key={post.id} src={post.imageURL} alt="Post" className="grid-item" />
+          ) : (
+            <div key={post.id} className="grid-item" style={{display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', fontSize: '0.7rem', textAlign: 'center'}}>
+              {post.text.substring(0, 30)}...
+            </div>
+          )
+        ))}
       </div>
 
       <button onClick={handleLogout} className="login-btn" style={{width: '100%', background: '#EAEAEA', color: 'var(--text-main)', boxShadow: 'none'}}>
@@ -168,39 +240,44 @@ const Perfil = ({ user, handleLogout }) => {
   );
 };
 
-// --- PANEL DE MONITORES ---
+// --- VISTAS TEMPORALES (Campañas, Ranking, Admin) ---
+const Campanas = () => (
+  <div>
+    <h1 className="page-title">Campañas</h1>
+    <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>Tablón de misiones activas.</p>
+  </div>
+);
+
+const Ranking = () => (
+  <div>
+    <h1 className="page-title">Top Talentos</h1>
+    <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>Clasificación en tiempo real.</p>
+  </div>
+);
+
 const Admin = ({ handleLogout }) => (
   <div style={{textAlign: 'center'}}>
     <h1 className="page-title">Panel Dios</h1>
-    <p style={{color: 'var(--text-muted)', marginBottom: '30px'}}>Bienvenido, Monitor. En el próximo paso conectaremos aquí el control de seguidores.</p>
+    <p style={{color: 'var(--text-muted)', marginBottom: '30px'}}>Bienvenido, Monitor.</p>
     <button onClick={handleLogout} className="login-btn">Desconectar</button>
   </div>
 );
 
-// --- NAVEGACIÓN INFERIOR ---
+
+// --- NAVEGACIÓN Y APP PRINCIPAL ---
 const BottomNav = () => {
   const location = useLocation();
   const currentPath = location.pathname;
-
   return (
     <nav className="bottom-nav">
-      <Link to="/" className={`nav-item ${currentPath === '/' ? 'active' : ''}`}>
-        <span className="nav-icon">📱</span><span>Feed</span>
-      </Link>
-      <Link to="/campanas" className={`nav-item ${currentPath === '/campanas' ? 'active' : ''}`}>
-        <span className="nav-icon">🎯</span><span>Campañas</span>
-      </Link>
-      <Link to="/ranking" className={`nav-item ${currentPath === '/ranking' ? 'active' : ''}`}>
-        <span className="nav-icon">🏆</span><span>Ranking</span>
-      </Link>
-      <Link to="/perfil" className={`nav-item ${currentPath === '/perfil' ? 'active' : ''}`}>
-        <span className="nav-icon">👤</span><span>Perfil</span>
-      </Link>
+      <Link to="/" className={`nav-item ${currentPath === '/' ? 'active' : ''}`}><span className="nav-icon">📱</span><span>Feed</span></Link>
+      <Link to="/campanas" className={`nav-item ${currentPath === '/campanas' ? 'active' : ''}`}><span className="nav-icon">🎯</span><span>Campañas</span></Link>
+      <Link to="/ranking" className={`nav-item ${currentPath === '/ranking' ? 'active' : ''}`}><span className="nav-icon">🏆</span><span>Ranking</span></Link>
+      <Link to="/perfil" className={`nav-item ${currentPath === '/perfil' ? 'active' : ''}`}><span className="nav-icon">👤</span><span>Perfil</span></Link>
     </nav>
   );
 };
 
-// --- APP PRINCIPAL ---
 function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -209,32 +286,23 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false);
-    });
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => { setUser(currentUser); setLoading(false); });
     return unsubscribe;
   }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setError(''); 
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (error) {
-      setError("Credenciales incorrectas. Vuelve a intentarlo.");
-    }
+    try { await signInWithEmailAndPassword(auth, email, password); } 
+    catch (error) { setError("Credenciales incorrectas. Vuelve a intentarlo."); }
   };
 
-  const handleLogout = () => {
-    signOut(auth);
-  };
+  const handleLogout = () => signOut(auth);
 
   if (loading) return <div style={{textAlign: 'center', marginTop: '100px'}}>Cargando sistema...</div>;
 
   if (user) {
     const isAdmin = user.email.includes('.admin');
-    
     return (
       <Router>
         <div className="app-layout">
@@ -244,7 +312,7 @@ function App() {
                 <Route path="*" element={<Admin handleLogout={handleLogout} />} />
               ) : (
                 <>
-                  <Route path="/" element={<Feed />} />
+                  <Route path="/" element={<Feed user={user} />} />
                   <Route path="/campanas" element={<Campanas />} />
                   <Route path="/ranking" element={<Ranking />} />
                   <Route path="/perfil" element={<Perfil user={user} handleLogout={handleLogout} />} />
