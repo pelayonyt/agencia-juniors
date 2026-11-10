@@ -806,3 +806,10 @@ input:focus {
   font-size: 0.7rem;
   backdrop-filter: blur(4px);
 }
+
+/* --- CORRECCIÓN TÍTULO PORTADA (LOGIN) --- */
+.agency-title {
+  line-height: 1.2 !important; /* Evita que las palabras se aplasten */
+  font-size: clamp(2.5rem, 8vw, 3.5rem) !important; /* Se adapta al tamaño de la pantalla */
+  padding: 0 10px;
+}
