@@ -734,3 +734,20 @@ input:focus {
 }
 
 .delete-comment-btn:hover { opacity: 1; }
+
+/* --- BOTÓN VER MÁS COMENTARIOS --- */
+.view-more-comments {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0 0 10px 0;
+  text-align: left;
+  transition: color 0.2s;
+}
+
+.view-more-comments:hover {
+  color: var(--text-main);
+}

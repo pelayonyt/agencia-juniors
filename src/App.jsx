@@ -65,11 +65,12 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
   );
 };
 
-// --- COMPONENTE DE PUBLICACIÓN (AHORA CON COMENTARIOS) ---
+// --- COMPONENTE DE PUBLICACIÓN ---
 const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost }) => {
   const [showHeart, setShowHeart] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
+  const [expandedComments, setExpandedComments] = useState(false); // NUEVO: Control de expansión
   
   const author = usersMap[post.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
   const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
@@ -98,19 +99,20 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
       authorId: user.uid,
       text: commentText.trim(),
     };
-    await updateDoc(doc(db, 'posts', post.id), {
-      comments: [...commentsArray, newComment]
-    });
+    await updateDoc(doc(db, 'posts', post.id), { comments: [...commentsArray, newComment] });
     setCommentText('');
+    setExpandedComments(true); // Expande automáticamente al comentar para que lo vea
   };
 
   const handleDeleteComment = async (commentId) => {
     if (window.confirm("¿Borrar este comentario?")) {
-      await updateDoc(doc(db, 'posts', post.id), {
-        comments: commentsArray.filter(c => c.id !== commentId)
-      });
+      await updateDoc(doc(db, 'posts', post.id), { comments: commentsArray.filter(c => c.id !== commentId) });
     }
   };
+
+  // Lógica de "Leer más": Coge solo los últimos 2 si no está expandido
+  const COMMENTS_LIMIT = 2;
+  const visibleComments = expandedComments ? commentsArray : commentsArray.slice(-COMMENTS_LIMIT);
 
   return (
     <div className="post-card">
@@ -138,7 +140,6 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
       )}
       
       <div className="post-footer" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
-        {/* Fila de Likes y Comentarios */}
         <div style={{display: 'flex', gap: '20px', alignItems: 'center'}}>
           <div onClick={() => toggleLike(post.id, likedByArray)} style={{cursor:'pointer', fontSize:'1.4rem'}}>
             {isLikedByMe ? '❤️' : '🤍'} <span style={{fontSize:'1rem', color:'var(--text-main)'}}>{likedByArray.length}</span>
@@ -152,37 +153,40 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
         {isAdmin && <AdminPostControls postId={post.id} likedByArray={likedByArray} />}
       </div>
 
-      {/* SECCIÓN DE COMENTARIOS (Desplegable) */}
+      {/* SECCIÓN DE COMENTARIOS */}
       {showComments && (
         <div className="comments-section">
           {commentsArray.length === 0 ? (
             <p style={{fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center'}}>Sé la primera en comentar.</p>
           ) : (
-            commentsArray.map(comment => {
-              const commentAuthor = usersMap[comment.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
-              return (
-                <div key={comment.id} className="comment-item">
-                  <img src={commentAuthor.photoURL} alt="Avatar" className="comment-avatar" />
-                  <div className="comment-content">
-                    <div className="comment-author">{commentAuthor.name}</div>
-                    <div className="comment-text">{comment.text}</div>
-                    {(comment.authorId === user.uid || isAdmin) && (
-                      <button className="delete-comment-btn" onClick={() => handleDeleteComment(comment.id)}>Borrar</button>
-                    )}
+            <>
+              {/* Botón Ver Más */}
+              {commentsArray.length > COMMENTS_LIMIT && (
+                <button className="view-more-comments" onClick={() => setExpandedComments(!expandedComments)}>
+                  {expandedComments ? 'Ocultar comentarios' : `Ver los ${commentsArray.length} comentarios`}
+                </button>
+              )}
+              
+              {visibleComments.map(comment => {
+                const commentAuthor = usersMap[comment.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
+                return (
+                  <div key={comment.id} className="comment-item">
+                    <img src={commentAuthor.photoURL} alt="Avatar" className="comment-avatar" />
+                    <div className="comment-content">
+                      <div className="comment-author">{commentAuthor.name}</div>
+                      <div className="comment-text">{comment.text}</div>
+                      {(comment.authorId === user.uid || isAdmin) && (
+                        <button className="delete-comment-btn" onClick={() => handleDeleteComment(comment.id)}>Borrar</button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })
+                );
+              })}
+            </>
           )}
           
           <form className="comment-input-row" onSubmit={handleAddComment}>
-            <input 
-              type="text" 
-              className="comment-input" 
-              placeholder="Escribe un comentario..." 
-              value={commentText} 
-              onChange={(e) => setCommentText(e.target.value)} 
-            />
+            <input type="text" className="comment-input" placeholder="Escribe un comentario..." value={commentText} onChange={(e) => setCommentText(e.target.value)} />
             <button type="submit" className="comment-submit-btn" disabled={!commentText.trim()}>Enviar</button>
           </form>
         </div>
