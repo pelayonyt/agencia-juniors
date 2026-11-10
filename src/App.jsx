@@ -65,12 +65,15 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
   );
 };
 
-// --- COMPONENTE DE PUBLICACIÓN (CON DOBLE TAP) ---
+// --- COMPONENTE DE PUBLICACIÓN (AHORA CON COMENTARIOS) ---
 const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost }) => {
   const [showHeart, setShowHeart] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [commentText, setCommentText] = useState('');
   
   const author = usersMap[post.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
   const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
+  const commentsArray = Array.isArray(post.comments) ? post.comments : [];
   const isLikedByMe = likedByArray.includes(user.uid);
   
   let likersText = '';
@@ -87,6 +90,28 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
     setTimeout(() => setShowHeart(false), 800);
   };
 
+  const handleAddComment = async (e) => {
+    e.preventDefault();
+    if (!commentText.trim()) return;
+    const newComment = {
+      id: Date.now().toString() + Math.random(),
+      authorId: user.uid,
+      text: commentText.trim(),
+    };
+    await updateDoc(doc(db, 'posts', post.id), {
+      comments: [...commentsArray, newComment]
+    });
+    setCommentText('');
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    if (window.confirm("¿Borrar este comentario?")) {
+      await updateDoc(doc(db, 'posts', post.id), {
+        comments: commentsArray.filter(c => c.id !== commentId)
+      });
+    }
+  };
+
   return (
     <div className="post-card">
       <div className="post-header">
@@ -98,36 +123,70 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
         )}
       </div>
       
-      {/* DOBLE TAP EN IMAGEN */}
       {post.imageURL && (
-        <div 
-          onDoubleClick={handleDoubleTap} 
-          style={{position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center'}}
-        >
+        <div onDoubleClick={handleDoubleTap} style={{position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
           <img src={post.imageURL} alt="Post" className="post-image" style={{cursor: 'pointer', userSelect: 'none'}} />
           {showHeart && <div className="big-heart">❤️</div>}
         </div>
       )}
       
-      {/* DOBLE TAP EN TEXTO (Si no hay imagen) */}
       {post.text && (
-        <div 
-          className="post-body" 
-          onDoubleClick={handleDoubleTap} 
-          style={{cursor: 'pointer', position: 'relative', userSelect: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center'}}
-        >
+        <div className="post-body" onDoubleClick={handleDoubleTap} style={{cursor: 'pointer', position: 'relative', userSelect: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
           <p className="post-text" style={{width: '100%'}}>{post.text}</p>
           {showHeart && !post.imageURL && <div className="big-heart" style={{color: 'rgba(211,47,47,0.5)', fontSize: '4rem'}}>❤️</div>}
         </div>
       )}
       
       <div className="post-footer" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
-        <div onClick={() => toggleLike(post.id, likedByArray)} style={{cursor:'pointer', fontSize:'1.4rem'}}>
-          {isLikedByMe ? '❤️' : '🤍'} <span style={{fontSize:'1rem', color:'var(--text-main)'}}>{likedByArray.length}</span>
+        {/* Fila de Likes y Comentarios */}
+        <div style={{display: 'flex', gap: '20px', alignItems: 'center'}}>
+          <div onClick={() => toggleLike(post.id, likedByArray)} style={{cursor:'pointer', fontSize:'1.4rem'}}>
+            {isLikedByMe ? '❤️' : '🤍'} <span style={{fontSize:'1rem', color:'var(--text-main)'}}>{likedByArray.length}</span>
+          </div>
+          <div onClick={() => setShowComments(!showComments)} style={{cursor:'pointer', fontSize:'1.4rem', filter: showComments ? 'opacity(0.5)' : 'none'}}>
+            💬 <span style={{fontSize:'1rem', color:'var(--text-main)'}}>{commentsArray.length}</span>
+          </div>
         </div>
-        {likersText && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{likersText}</div>}
+
+        {likersText && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '5px'}}>{likersText}</div>}
         {isAdmin && <AdminPostControls postId={post.id} likedByArray={likedByArray} />}
       </div>
+
+      {/* SECCIÓN DE COMENTARIOS (Desplegable) */}
+      {showComments && (
+        <div className="comments-section">
+          {commentsArray.length === 0 ? (
+            <p style={{fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center'}}>Sé la primera en comentar.</p>
+          ) : (
+            commentsArray.map(comment => {
+              const commentAuthor = usersMap[comment.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
+              return (
+                <div key={comment.id} className="comment-item">
+                  <img src={commentAuthor.photoURL} alt="Avatar" className="comment-avatar" />
+                  <div className="comment-content">
+                    <div className="comment-author">{commentAuthor.name}</div>
+                    <div className="comment-text">{comment.text}</div>
+                    {(comment.authorId === user.uid || isAdmin) && (
+                      <button className="delete-comment-btn" onClick={() => handleDeleteComment(comment.id)}>Borrar</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+          
+          <form className="comment-input-row" onSubmit={handleAddComment}>
+            <input 
+              type="text" 
+              className="comment-input" 
+              placeholder="Escribe un comentario..." 
+              value={commentText} 
+              onChange={(e) => setCommentText(e.target.value)} 
+            />
+            <button type="submit" className="comment-submit-btn" disabled={!commentText.trim()}>Enviar</button>
+          </form>
+        </div>
+      )}
     </div>
   );
 };
@@ -167,7 +226,7 @@ const Feed = ({ user, isAdmin }) => {
     setUploading(true);
     const savePost = async (photoBase64 = null) => {
       await addDoc(collection(db, 'posts'), {
-        text: text, imageURL: photoBase64, authorId: user.uid, campaignName: selectedCampaignForUpload, likedBy: [], createdAt: serverTimestamp()
+        text: text, imageURL: photoBase64, authorId: user.uid, campaignName: selectedCampaignForUpload, likedBy: [], comments: [], createdAt: serverTimestamp()
       });
       setText(''); setImageFile(null); setSelectedCampaignForUpload('General'); setUploading(false);
     };
