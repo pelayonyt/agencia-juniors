@@ -532,3 +532,77 @@ input:focus {
   text-align: center;
   margin-right: 8px;
 }
+
+/* --- FILTROS, ETIQUETAS Y REACCIONES --- */
+.horizontal-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+  margin-bottom: 15px;
+  scrollbar-width: none; /* Oculta la barra de scroll en Firefox */
+}
+
+.horizontal-scroll::-webkit-scrollbar { 
+  display: none; /* Oculta la barra de scroll en Chrome/Safari */
+}
+
+.tag-pill {
+  background: #EAEAEA;
+  color: var(--text-muted);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.tag-pill.active {
+  background: var(--text-main);
+  color: white;
+  box-shadow: 0 4px 10px rgba(45, 30, 62, 0.2);
+}
+
+.post-tag {
+  font-size: 0.65rem;
+  background: rgba(45, 30, 62, 0.08);
+  color: var(--text-main);
+  padding: 3px 8px;
+  border-radius: 10px;
+  margin-left: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.reaction-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #F0F0F0;
+}
+
+.reaction-btn {
+  background: transparent;
+  border: 1px solid #EAEAEA;
+  padding: 6px 14px;
+  border-radius: 15px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.reaction-btn.active { 
+  background: #FFF0F0; 
+  border-color: #FFD1D1; 
+  color: #D32F2F;
+  font-weight: 500;
+}

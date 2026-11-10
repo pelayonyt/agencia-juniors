@@ -25,25 +25,20 @@ const compressImage = (file, callback) => {
   };
 };
 
-// --- SUB-COMPONENTES PARA CONTROLES DE ADMIN ---
-// Esto nos permite tener un input numérico independiente para cada publicación o niña
 const AdminPostControls = ({ postId, likedByArray }) => {
-  const [amount, setAmount] = useState(10); // 10 por defecto para ir rápido
-  
+  const [amount, setAmount] = useState(10);
   const addFakeLikes = async () => {
     if (amount <= 0) return;
     const bots = Array.from({length: amount}, () => `bot_${Math.random()}`);
     await updateDoc(doc(db, 'posts', postId), { likedBy: [...likedByArray, ...bots] });
   };
-  
   const removeFakeLikes = async () => {
     if (amount <= 0) return;
     const realLikes = likedByArray.filter(uid => !uid.startsWith('bot_'));
     const bots = likedByArray.filter(uid => uid.startsWith('bot_'));
-    bots.splice(0, amount); // Eliminamos la cantidad exacta de bots
+    bots.splice(0, amount);
     await updateDoc(doc(db, 'posts', postId), { likedBy: [...realLikes, ...bots] });
   };
-
   return (
     <div className="admin-secret-likes">
       <span style={{fontSize:'0.7rem', color:'var(--text-muted)', display:'flex', alignItems:'center'}}>ADMIN:</span>
@@ -56,13 +51,11 @@ const AdminPostControls = ({ postId, likedByArray }) => {
 
 const AdminUserControls = ({ uid, currentFollowers }) => {
   const [amount, setAmount] = useState(50);
-  
   const updateFollowers = async (isAdding) => {
     const val = isAdding ? amount : -amount;
     const newTotal = Math.max(0, (currentFollowers || 0) + val);
     await updateDoc(doc(db, 'users', uid), { followers: newTotal });
   };
-
   return (
     <div className="admin-controls" style={{alignItems: 'center'}}>
       <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="admin-number-input" style={{width: '60px', margin:0}} />
@@ -73,26 +66,38 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
 };
 
 
-// --- 1. FEED ---
+// --- 1. FEED (Con Filtros de Campañas) ---
 const Feed = ({ user, isAdmin }) => {
   const [posts, setPosts] = useState([]);
   const [usersMap, setUsersMap] = useState({});
+  const [campaigns, setCampaigns] = useState([]); // Guardamos las campañas para los filtros
+  
   const [text, setText] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
 
+  // Estados para los filtros
+  const [activeFilter, setActiveFilter] = useState('Todas');
+  const [selectedCampaignForUpload, setSelectedCampaignForUpload] = useState('General');
+
   useEffect(() => {
     if (!user) return;
+    
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
       setUsersMap(uMap);
     });
-    const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
-    const unsubPosts = onSnapshot(q, (snap) => {
+    
+    const unsubPosts = onSnapshot(query(collection(db, 'posts'), orderBy('createdAt', 'desc')), (snap) => {
       setPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-    return () => { unsubUsers(); unsubPosts(); };
+
+    const unsubCamps = onSnapshot(query(collection(db, 'campaigns'), orderBy('createdAt', 'desc')), (snap) => {
+      setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => { unsubUsers(); unsubPosts(); unsubCamps(); };
   }, [user]);
 
   const handlePublish = async () => {
@@ -100,9 +105,14 @@ const Feed = ({ user, isAdmin }) => {
     setUploading(true);
     const savePost = async (photoBase64 = null) => {
       await addDoc(collection(db, 'posts'), {
-        text: text, imageURL: photoBase64, authorId: user.uid, likedBy: [], createdAt: serverTimestamp()
+        text: text, 
+        imageURL: photoBase64, 
+        authorId: user.uid, 
+        campaignName: selectedCampaignForUpload, // Guardamos a qué campaña pertenece
+        likedBy: [], 
+        createdAt: serverTimestamp()
       });
-      setText(''); setImageFile(null); setUploading(false);
+      setText(''); setImageFile(null); setSelectedCampaignForUpload('General'); setUploading(false);
     };
     if (imageFile) compressImage(imageFile, savePost); else savePost();
   };
@@ -116,12 +126,43 @@ const Feed = ({ user, isAdmin }) => {
     }
   };
 
+  // Filtramos las publicaciones según la pestaña seleccionada
+  const displayedPosts = activeFilter === 'Todas' 
+    ? posts 
+    : posts.filter(post => post.campaignName === activeFilter);
+
   return (
     <div>
       <h1 className="page-title">Feed</h1>
+
+      {/* BARRA DE FILTROS SUPERIOR */}
+      <div className="horizontal-scroll">
+        <div className={`tag-pill ${activeFilter === 'Todas' ? 'active' : ''}`} onClick={() => setActiveFilter('Todas')}>Todas</div>
+        <div className={`tag-pill ${activeFilter === 'General' ? 'active' : ''}`} onClick={() => setActiveFilter('General')}>General</div>
+        {campaigns.map(camp => (
+          <div key={camp.id} className={`tag-pill ${activeFilter === camp.title ? 'active' : ''}`} onClick={() => setActiveFilter(camp.title)}>
+            {camp.title}
+          </div>
+        ))}
+      </div>
+
       <div className="create-post-card">
         <textarea className="post-input" placeholder="¿Qué quieres compartir con la élite hoy?" value={text} onChange={(e) => setText(e.target.value)} rows="3" />
         {imageFile && <p style={{fontSize: '0.8rem', color: '#4A3265', marginBottom: '10px'}}>✓ Foto adjuntada</p>}
+        
+        {/* SELECTOR DE CAMPAÑA PARA PUBLICAR */}
+        <div style={{marginBottom: '15px'}}>
+          <span style={{fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '5px'}}>Etiqueta tu publicación:</span>
+          <div className="horizontal-scroll" style={{marginBottom: 0, paddingBottom: '5px'}}>
+            <div className={`tag-pill ${selectedCampaignForUpload === 'General' ? 'active' : ''}`} onClick={() => setSelectedCampaignForUpload('General')}>General</div>
+            {campaigns.map(camp => (
+              <div key={camp.id} className={`tag-pill ${selectedCampaignForUpload === camp.title ? 'active' : ''}`} onClick={() => setSelectedCampaignForUpload(camp.title)}>
+                {camp.title}
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="post-actions">
           <div className="upload-photo-btn" onClick={() => fileInputRef.current.click()}>📷 Foto</div>
           <input type="file" accept="image/*" ref={fileInputRef} style={{display:'none'}} onChange={(e) => setImageFile(e.target.files[0])} />
@@ -131,46 +172,52 @@ const Feed = ({ user, isAdmin }) => {
         </div>
       </div>
 
-      {posts.map(post => {
-        const author = usersMap[post.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
-        const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
-        const isLikedByMe = likedByArray.includes(user.uid);
-        
-        let likersText = '';
-        if (likedByArray.length > 0) {
-          const names = likedByArray.map(uid => uid === user.uid ? "ti" : (usersMap[uid]?.name?.split(' ')[0] || "Alguien"));
-          if (names.length === 1) likersText = `Le gusta a ${names[0]}`;
-          else if (names.length === 2) likersText = `Le gusta a ${names[0]} y ${names[1]}`;
-          else likersText = `Le gusta a ${names[0]}, ${names[1]} y ${names.length - 2} más`;
-        }
+      {displayedPosts.length === 0 ? (
+        <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>No hay publicaciones con esta etiqueta.</p>
+      ) : (
+        displayedPosts.map(post => {
+          const author = usersMap[post.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
+          const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
+          const isLikedByMe = likedByArray.includes(user.uid);
+          
+          let likersText = '';
+          if (likedByArray.length > 0) {
+            const names = likedByArray.map(uid => uid === user.uid ? "ti" : (usersMap[uid]?.name?.split(' ')[0] || "Alguien"));
+            if (names.length === 1) likersText = `Le gusta a ${names[0]}`;
+            else if (names.length === 2) likersText = `Le gusta a ${names[0]} y ${names[1]}`;
+            else likersText = `Le gusta a ${names[0]}, ${names[1]} y ${names.length - 2} más`;
+          }
 
-        return (
-          <div key={post.id} className="post-card">
-            <div className="post-header">
-              <img src={author.photoURL} alt="Avatar" className="post-avatar" />
-              <span className="post-author">{author.name}</span>
-            </div>
-            {post.imageURL && <img src={post.imageURL} alt="Post" className="post-image" />}
-            {post.text && <div className="post-body"><p className="post-text">{post.text}</p></div>}
-            
-            <div className="post-footer" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
-              <div onClick={() => toggleLike(post.id, likedByArray)} style={{cursor:'pointer', fontSize:'1.4rem'}}>
-                {isLikedByMe ? '❤️' : '🤍'} <span style={{fontSize:'1rem', color:'var(--text-main)'}}>{likedByArray.length}</span>
+          return (
+            <div key={post.id} className="post-card">
+              <div className="post-header">
+                <img src={author.photoURL} alt="Avatar" className="post-avatar" />
+                <span className="post-author">{author.name}</span>
+                {/* ETIQUETA VISUAL EN EL POST */}
+                {post.campaignName && post.campaignName !== 'General' && (
+                  <span className="post-tag">{post.campaignName}</span>
+                )}
               </div>
-              {likersText && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{likersText}</div>}
+              {post.imageURL && <img src={post.imageURL} alt="Post" className="post-image" />}
+              {post.text && <div className="post-body"><p className="post-text">{post.text}</p></div>}
               
-              {/* Controles numéricos para ADMIN */}
-              {isAdmin && <AdminPostControls postId={post.id} likedByArray={likedByArray} />}
+              <div className="post-footer" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
+                <div onClick={() => toggleLike(post.id, likedByArray)} style={{cursor:'pointer', fontSize:'1.4rem'}}>
+                  {isLikedByMe ? '❤️' : '🤍'} <span style={{fontSize:'1rem', color:'var(--text-main)'}}>{likedByArray.length}</span>
+                </div>
+                {likersText && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{likersText}</div>}
+                {isAdmin && <AdminPostControls postId={post.id} likedByArray={likedByArray} />}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })
+      )}
     </div>
   );
 };
 
-// --- 2. CAMPAÑAS (NUEVO) ---
-const Campanas = ({ isAdmin }) => {
+// --- 2. CAMPAÑAS (Con Reacciones) ---
+const Campanas = ({ isAdmin, user }) => {
   const [campaigns, setCampaigns] = useState([]);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -191,50 +238,66 @@ const Campanas = ({ isAdmin }) => {
       title: title,
       description: desc,
       reward: reward || "Reputación",
+      reactions: [], // Array para guardar quién se apunta
       createdAt: serverTimestamp()
     });
     setTitle(''); setDesc(''); setReward('');
   };
 
-  const handleDelete = async (id) => {
-    // En firebase no borraremos el doc para no complicar el código, 
-    // simplemente lo ocultaremos si fuera necesario. Por ahora lo dejamos simple.
-    alert("Para borrar misiones se requiere acceso a la consola de Firebase.");
+  // Función para apuntarse a una misión
+  const toggleReaction = async (campId, currentReactions) => {
+    const campRef = doc(db, 'campaigns', campId);
+    if (currentReactions.includes(user.uid)) {
+      await updateDoc(campRef, { reactions: currentReactions.filter(uid => uid !== user.uid) });
+    } else {
+      await updateDoc(campRef, { reactions: [...currentReactions, user.uid] });
+    }
   };
 
   return (
     <div>
       <h1 className="page-title">Campañas</h1>
-      <p style={{textAlign: 'center', color: 'var(--text-muted)', marginBottom: '30px'}}>
-        Misiones activas de The Castoras House.
-      </p>
+      <p style={{textAlign: 'center', color: 'var(--text-muted)', marginBottom: '30px'}}>Misiones activas de The Castoras House.</p>
 
-      {/* Formulario solo visible para MONITORES */}
       {isAdmin && (
         <div className="create-post-card" style={{border: '2px dashed var(--text-main)'}}>
-          <h3 style={{marginBottom: '15px', fontFamily: 'Playfair Display'}}>⚡ Nueva Misión (Solo Admin)</h3>
+          <h3 style={{marginBottom: '15px', fontFamily: 'Playfair Display'}}>⚡ Nueva Misión</h3>
           <form onSubmit={handleCreateCampaign} style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
-            <input type="text" placeholder="Título de la campaña (ej. Unboxing Misterioso)" value={title} onChange={(e) => setTitle(e.target.value)} required style={{padding: '10px'}} />
-            <textarea className="post-input" placeholder="Instrucciones de lo que tienen que subir..." value={desc} onChange={(e) => setDesc(e.target.value)} rows="3" required />
-            <input type="text" placeholder="Recompensa (ej. +500 Seguidores)" value={reward} onChange={(e) => setReward(e.target.value)} style={{padding: '10px'}} />
+            <input type="text" placeholder="Título (ej. Unboxing Misterioso)" value={title} onChange={(e) => setTitle(e.target.value)} required style={{padding: '10px'}} />
+            <textarea className="post-input" placeholder="Instrucciones..." value={desc} onChange={(e) => setDesc(e.target.value)} rows="3" required />
+            <input type="text" placeholder="Recompensa (ej. +500 Seg)" value={reward} onChange={(e) => setReward(e.target.value)} style={{padding: '10px'}} />
             <button type="submit" className="login-btn" style={{marginTop: '10px'}}>Publicar Campaña</button>
           </form>
         </div>
       )}
 
-      {/* Lista de campañas para TODAS */}
       {campaigns.length === 0 ? (
-        <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>No hay misiones activas ahora mismo.</p>
+        <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>No hay misiones activas.</p>
       ) : (
-        campaigns.map(camp => (
-          <div key={camp.id} className="campaign-card">
-            <div className="campaign-header">
-              <h2 className="campaign-title">{camp.title}</h2>
-              {camp.reward && <span className="campaign-reward">{camp.reward}</span>}
+        campaigns.map(camp => {
+          const reactionsArray = Array.isArray(camp.reactions) ? camp.reactions : [];
+          const isReactedByMe = reactionsArray.includes(user.uid);
+
+          return (
+            <div key={camp.id} className="campaign-card">
+              <div className="campaign-header">
+                <h2 className="campaign-title">{camp.title}</h2>
+                {camp.reward && <span className="campaign-reward">{camp.reward}</span>}
+              </div>
+              <p className="campaign-desc">{camp.description}</p>
+              
+              {/* BOTÓN DE INTERACCIÓN SUTIL */}
+              <div className="reaction-row">
+                <button 
+                  className={`reaction-btn ${isReactedByMe ? 'active' : ''}`}
+                  onClick={() => toggleReaction(camp.id, reactionsArray)}
+                >
+                  🔥 Me apunto <span>({reactionsArray.length})</span>
+                </button>
+              </div>
             </div>
-            <p className="campaign-desc">{camp.description}</p>
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );
@@ -243,7 +306,6 @@ const Campanas = ({ isAdmin }) => {
 // --- 3. RANKING ---
 const Ranking = () => {
   const [usersList, setUsersList] = useState([]);
-
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'users'), (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -252,18 +314,12 @@ const Ranking = () => {
     });
     return () => unsub();
   }, []);
-
   const getMedal = (index) => {
-    if (index === 0) return '🥇';
-    if (index === 1) return '🥈';
-    if (index === 2) return '🥉';
-    return index + 1;
+    if (index === 0) return '🥇'; if (index === 1) return '🥈'; if (index === 2) return '🥉'; return index + 1;
   };
-
   return (
     <div>
       <h1 className="page-title">Top Talentos</h1>
-      <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>La élite de The Castoras House en tiempo real.</p>
       <div className="ranking-list">
         {usersList.map((u, index) => (
           <div key={u.id} className="ranking-item">
@@ -283,7 +339,6 @@ const Ranking = () => {
 // --- 4. PANEL DE CONTROL DIOS ---
 const AdminControl = () => {
   const [usersList, setUsersList] = useState([]);
-
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'users'), (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -292,19 +347,15 @@ const AdminControl = () => {
     });
     return () => unsub();
   }, []);
-
   return (
     <div>
       <h1 className="page-title" style={{color: '#4A3265'}}>Panel Dios</h1>
-      <p style={{textAlign: 'center', color: 'var(--text-muted)', marginBottom:'20px'}}>Modifica la reputación libremente.</p>
-      
       {usersList.map(u => (
         <div key={u.id} className="admin-user-row">
           <div style={{flex: 1}}>
             <div style={{fontWeight: 'bold', fontSize: '0.9rem'}}>{u.name || u.email.split('@')[0]}</div>
             <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{u.followers || 0} Seg.</div>
           </div>
-          {/* Le pasamos los datos al sub-componente que tiene su propio input numérico */}
           <AdminUserControls uid={u.id} currentFollowers={u.followers} />
         </div>
       ))}
@@ -387,9 +438,7 @@ const BottomNav = ({ isAdmin }) => {
       <Link to="/campanas" className={`nav-item ${currentPath === '/campanas' ? 'active' : ''}`}><span className="nav-icon">🎯</span><span>Campañas</span></Link>
       <Link to="/ranking" className={`nav-item ${currentPath === '/ranking' ? 'active' : ''}`}><span className="nav-icon">🏆</span><span>Ranking</span></Link>
       <Link to="/perfil" className={`nav-item ${currentPath === '/perfil' ? 'active' : ''}`}><span className="nav-icon">👤</span><span>Perfil</span></Link>
-      {isAdmin && (
-        <Link to="/admin" className={`nav-item ${currentPath === '/admin' ? 'active' : ''}`}><span className="nav-icon">👁️</span><span>Control</span></Link>
-      )}
+      {isAdmin && <Link to="/admin" className={`nav-item ${currentPath === '/admin' ? 'active' : ''}`}><span className="nav-icon">👁️</span><span>Control</span></Link>}
     </nav>
   );
 };
@@ -423,7 +472,7 @@ function App() {
           <main className="main-content">
             <Routes>
               <Route path="/" element={<Feed user={user} isAdmin={isAdmin} />} />
-              <Route path="/campanas" element={<Campanas isAdmin={isAdmin} />} />
+              <Route path="/campanas" element={<Campanas isAdmin={isAdmin} user={user} />} />
               <Route path="/ranking" element={<Ranking />} />
               <Route path="/perfil" element={<Perfil user={user} handleLogout={handleLogout} />} />
               {isAdmin && <Route path="/admin" element={<AdminControl />} />}
