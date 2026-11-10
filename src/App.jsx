@@ -25,7 +25,55 @@ const compressImage = (file, callback) => {
   };
 };
 
-// --- 1. FEED (Con poderes secretos para Admins) ---
+// --- SUB-COMPONENTES PARA CONTROLES DE ADMIN ---
+// Esto nos permite tener un input numérico independiente para cada publicación o niña
+const AdminPostControls = ({ postId, likedByArray }) => {
+  const [amount, setAmount] = useState(10); // 10 por defecto para ir rápido
+  
+  const addFakeLikes = async () => {
+    if (amount <= 0) return;
+    const bots = Array.from({length: amount}, () => `bot_${Math.random()}`);
+    await updateDoc(doc(db, 'posts', postId), { likedBy: [...likedByArray, ...bots] });
+  };
+  
+  const removeFakeLikes = async () => {
+    if (amount <= 0) return;
+    const realLikes = likedByArray.filter(uid => !uid.startsWith('bot_'));
+    const bots = likedByArray.filter(uid => uid.startsWith('bot_'));
+    bots.splice(0, amount); // Eliminamos la cantidad exacta de bots
+    await updateDoc(doc(db, 'posts', postId), { likedBy: [...realLikes, ...bots] });
+  };
+
+  return (
+    <div className="admin-secret-likes">
+      <span style={{fontSize:'0.7rem', color:'var(--text-muted)', display:'flex', alignItems:'center'}}>ADMIN:</span>
+      <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="admin-number-input" />
+      <button className="admin-btn" onClick={addFakeLikes}>+ Likes</button>
+      <button className="admin-btn" onClick={removeFakeLikes}>- Likes</button>
+    </div>
+  );
+};
+
+const AdminUserControls = ({ uid, currentFollowers }) => {
+  const [amount, setAmount] = useState(50);
+  
+  const updateFollowers = async (isAdding) => {
+    const val = isAdding ? amount : -amount;
+    const newTotal = Math.max(0, (currentFollowers || 0) + val);
+    await updateDoc(doc(db, 'users', uid), { followers: newTotal });
+  };
+
+  return (
+    <div className="admin-controls" style={{alignItems: 'center'}}>
+      <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="admin-number-input" style={{width: '60px', margin:0}} />
+      <button className="admin-btn" onClick={() => updateFollowers(false)}>- Seg</button>
+      <button className="admin-btn" onClick={() => updateFollowers(true)}>+ Seg</button>
+    </div>
+  );
+};
+
+
+// --- 1. FEED ---
 const Feed = ({ user, isAdmin }) => {
   const [posts, setPosts] = useState([]);
   const [usersMap, setUsersMap] = useState({});
@@ -68,25 +116,12 @@ const Feed = ({ user, isAdmin }) => {
     }
   };
 
-  // PODERES DE ADMIN: Añadir/Quitar likes fantasmas
-  const addFakeLikes = async (postId, currentLikedBy, amount) => {
-    const bots = Array.from({length: amount}, () => `bot_${Math.random()}`);
-    await updateDoc(doc(db, 'posts', postId), { likedBy: [...currentLikedBy, ...bots] });
-  };
-
-  const removeFakeLikes = async (postId, currentLikedBy, amount) => {
-    const realLikes = currentLikedBy.filter(uid => !uid.startsWith('bot_'));
-    const bots = currentLikedBy.filter(uid => uid.startsWith('bot_'));
-    bots.splice(0, amount); // Elimina bots
-    await updateDoc(doc(db, 'posts', postId), { likedBy: [...realLikes, ...bots] });
-  };
-
   return (
     <div>
       <h1 className="page-title">Feed</h1>
       <div className="create-post-card">
-        <textarea className="post-input" placeholder="¿Qué quieres compartir?" value={text} onChange={(e) => setText(e.target.value)} rows="3" />
-        {imageFile && <p style={{fontSize: '0.8rem', color: '#4A3265', marginBottom: '10px'}}>✓ Foto lista</p>}
+        <textarea className="post-input" placeholder="¿Qué quieres compartir con la élite hoy?" value={text} onChange={(e) => setText(e.target.value)} rows="3" />
+        {imageFile && <p style={{fontSize: '0.8rem', color: '#4A3265', marginBottom: '10px'}}>✓ Foto adjuntada</p>}
         <div className="post-actions">
           <div className="upload-photo-btn" onClick={() => fileInputRef.current.click()}>📷 Foto</div>
           <input type="file" accept="image/*" ref={fileInputRef} style={{display:'none'}} onChange={(e) => setImageFile(e.target.files[0])} />
@@ -101,6 +136,14 @@ const Feed = ({ user, isAdmin }) => {
         const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
         const isLikedByMe = likedByArray.includes(user.uid);
         
+        let likersText = '';
+        if (likedByArray.length > 0) {
+          const names = likedByArray.map(uid => uid === user.uid ? "ti" : (usersMap[uid]?.name?.split(' ')[0] || "Alguien"));
+          if (names.length === 1) likersText = `Le gusta a ${names[0]}`;
+          else if (names.length === 2) likersText = `Le gusta a ${names[0]} y ${names[1]}`;
+          else likersText = `Le gusta a ${names[0]}, ${names[1]} y ${names.length - 2} más`;
+        }
+
         return (
           <div key={post.id} className="post-card">
             <div className="post-header">
@@ -114,15 +157,10 @@ const Feed = ({ user, isAdmin }) => {
               <div onClick={() => toggleLike(post.id, likedByArray)} style={{cursor:'pointer', fontSize:'1.4rem'}}>
                 {isLikedByMe ? '❤️' : '🤍'} <span style={{fontSize:'1rem', color:'var(--text-main)'}}>{likedByArray.length}</span>
               </div>
+              {likersText && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{likersText}</div>}
               
-              {/* BOTONES SECRETOS SOLO PARA MONITORES */}
-              {isAdmin && (
-                <div className="admin-secret-likes">
-                  <span style={{fontSize:'0.7rem', color:'var(--text-muted)', display:'flex', alignItems:'center'}}>ADMIN LIKES:</span>
-                  <button className="admin-btn" onClick={() => addFakeLikes(post.id, likedByArray, 10)}>+10</button>
-                  <button className="admin-btn" onClick={() => removeFakeLikes(post.id, likedByArray, 10)}>-10</button>
-                </div>
-              )}
+              {/* Controles numéricos para ADMIN */}
+              {isAdmin && <AdminPostControls postId={post.id} likedByArray={likedByArray} />}
             </div>
           </div>
         );
@@ -131,14 +169,84 @@ const Feed = ({ user, isAdmin }) => {
   );
 };
 
-// --- 2. RANKING ---
+// --- 2. CAMPAÑAS (NUEVO) ---
+const Campanas = ({ isAdmin }) => {
+  const [campaigns, setCampaigns] = useState([]);
+  const [title, setTitle] = useState('');
+  const [desc, setDesc] = useState('');
+  const [reward, setReward] = useState('');
+
+  useEffect(() => {
+    const q = query(collection(db, 'campaigns'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      setCampaigns(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
+  }, []);
+
+  const handleCreateCampaign = async (e) => {
+    e.preventDefault();
+    if (!title || !desc) return;
+    await addDoc(collection(db, 'campaigns'), {
+      title: title,
+      description: desc,
+      reward: reward || "Reputación",
+      createdAt: serverTimestamp()
+    });
+    setTitle(''); setDesc(''); setReward('');
+  };
+
+  const handleDelete = async (id) => {
+    // En firebase no borraremos el doc para no complicar el código, 
+    // simplemente lo ocultaremos si fuera necesario. Por ahora lo dejamos simple.
+    alert("Para borrar misiones se requiere acceso a la consola de Firebase.");
+  };
+
+  return (
+    <div>
+      <h1 className="page-title">Campañas</h1>
+      <p style={{textAlign: 'center', color: 'var(--text-muted)', marginBottom: '30px'}}>
+        Misiones activas de The Castoras House.
+      </p>
+
+      {/* Formulario solo visible para MONITORES */}
+      {isAdmin && (
+        <div className="create-post-card" style={{border: '2px dashed var(--text-main)'}}>
+          <h3 style={{marginBottom: '15px', fontFamily: 'Playfair Display'}}>⚡ Nueva Misión (Solo Admin)</h3>
+          <form onSubmit={handleCreateCampaign} style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
+            <input type="text" placeholder="Título de la campaña (ej. Unboxing Misterioso)" value={title} onChange={(e) => setTitle(e.target.value)} required style={{padding: '10px'}} />
+            <textarea className="post-input" placeholder="Instrucciones de lo que tienen que subir..." value={desc} onChange={(e) => setDesc(e.target.value)} rows="3" required />
+            <input type="text" placeholder="Recompensa (ej. +500 Seguidores)" value={reward} onChange={(e) => setReward(e.target.value)} style={{padding: '10px'}} />
+            <button type="submit" className="login-btn" style={{marginTop: '10px'}}>Publicar Campaña</button>
+          </form>
+        </div>
+      )}
+
+      {/* Lista de campañas para TODAS */}
+      {campaigns.length === 0 ? (
+        <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>No hay misiones activas ahora mismo.</p>
+      ) : (
+        campaigns.map(camp => (
+          <div key={camp.id} className="campaign-card">
+            <div className="campaign-header">
+              <h2 className="campaign-title">{camp.title}</h2>
+              {camp.reward && <span className="campaign-reward">{camp.reward}</span>}
+            </div>
+            <p className="campaign-desc">{camp.description}</p>
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
+
+// --- 3. RANKING ---
 const Ranking = () => {
   const [usersList, setUsersList] = useState([]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'users'), (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Ordenar por seguidores de mayor a menor
       list.sort((a, b) => (b.followers || 0) - (a.followers || 0));
       setUsersList(list);
     });
@@ -172,7 +280,7 @@ const Ranking = () => {
   );
 };
 
-// --- 3. PANEL DE CONTROL DIOS (SOLO ADMINS) ---
+// --- 4. PANEL DE CONTROL DIOS ---
 const AdminControl = () => {
   const [usersList, setUsersList] = useState([]);
 
@@ -185,35 +293,27 @@ const AdminControl = () => {
     return () => unsub();
   }, []);
 
-  const updateFollowers = async (uid, currentFollowers, amount) => {
-    const newTotal = Math.max(0, (currentFollowers || 0) + amount); // No permite bajar de 0
-    await updateDoc(doc(db, 'users', uid), { followers: newTotal });
-  };
-
   return (
     <div>
       <h1 className="page-title" style={{color: '#4A3265'}}>Panel Dios</h1>
-      <p style={{textAlign: 'center', color: 'var(--text-muted)', marginBottom:'20px'}}>Modifica la reputación de las influencers.</p>
+      <p style={{textAlign: 'center', color: 'var(--text-muted)', marginBottom:'20px'}}>Modifica la reputación libremente.</p>
       
       {usersList.map(u => (
         <div key={u.id} className="admin-user-row">
-          <div>
+          <div style={{flex: 1}}>
             <div style={{fontWeight: 'bold', fontSize: '0.9rem'}}>{u.name || u.email.split('@')[0]}</div>
             <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{u.followers || 0} Seg.</div>
           </div>
-          <div className="admin-controls">
-            <button className="admin-btn" onClick={() => updateFollowers(u.id, u.followers, -50)}>-50</button>
-            <button className="admin-btn" onClick={() => updateFollowers(u.id, u.followers, +100)}>+100</button>
-          </div>
+          {/* Le pasamos los datos al sub-componente que tiene su propio input numérico */}
+          <AdminUserControls uid={u.id} currentFollowers={u.followers} />
         </div>
       ))}
     </div>
   );
 };
 
-// --- 4. PERFIL Y RESTO ---
+// --- 5. PERFIL ---
 const Perfil = ({ user, handleLogout }) => {
-  // (Mismo código de perfil que ya tenías)
   const [profileData, setProfileData] = useState({ name: '', photoURL: '', followers: 0 });
   const [userPosts, setUserPosts] = useState([]);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -277,10 +377,6 @@ const Perfil = ({ user, handleLogout }) => {
   );
 };
 
-const Campanas = () => (
-  <div><h1 className="page-title">Campañas</h1><p style={{textAlign: 'center', color: 'var(--text-muted)'}}>Tablón de misiones activas.</p></div>
-);
-
 // --- NAVEGACIÓN Y APP PRINCIPAL ---
 const BottomNav = ({ isAdmin }) => {
   const location = useLocation();
@@ -327,7 +423,7 @@ function App() {
           <main className="main-content">
             <Routes>
               <Route path="/" element={<Feed user={user} isAdmin={isAdmin} />} />
-              <Route path="/campanas" element={<Campanas />} />
+              <Route path="/campanas" element={<Campanas isAdmin={isAdmin} />} />
               <Route path="/ranking" element={<Ranking />} />
               <Route path="/perfil" element={<Perfil user={user} handleLogout={handleLogout} />} />
               {isAdmin && <Route path="/admin" element={<AdminControl />} />}

@@ -480,3 +480,55 @@ input:focus {
   padding-top: 10px;
   border-top: 1px dashed #EAEAEA;
 }
+
+/* --- CAMPAÑAS Y MISIONES --- */
+.campaign-card {
+  background: var(--box-bg);
+  border-radius: 16px;
+  padding: 25px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 15px rgba(45, 30, 62, 0.05);
+  border-left: 5px solid var(--text-main);
+}
+
+.campaign-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 15px;
+}
+
+.campaign-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.4rem;
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.campaign-reward {
+  background: rgba(215, 232, 213, 0.6);
+  color: #2D4A2A;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  margin-left: 10px;
+}
+
+.campaign-desc {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* --- CONTROLES ADMIN NUMÉRICOS --- */
+.admin-number-input {
+  width: 70px;
+  padding: 6px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-family: 'Inter', sans-serif;
+  text-align: center;
+  margin-right: 8px;
+}
