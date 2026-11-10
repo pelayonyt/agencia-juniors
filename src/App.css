@@ -113,7 +113,7 @@ input {
   padding: 16px;
   border: 1px solid #EAEAEA;
   border-radius: 8px;
-  font-size: 0.95px;
+  font-size: 1rem; /* ¡Corregido para que se lea perfectamente! */
   font-family: 'Inter', sans-serif;
   transition: border-color 0.3s ease;
   background-color: #FCFCFC;
