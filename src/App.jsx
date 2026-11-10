@@ -5,7 +5,6 @@ import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy,
 import { auth, db } from "./firebase";
 import './App.css';
 
-// --- MAGIA ANTI-PAGOS: COMPRESOR DE IMÁGENES ---
 const compressImage = (file, callback) => {
   const reader = new FileReader();
   reader.readAsDataURL(file);
@@ -14,29 +13,22 @@ const compressImage = (file, callback) => {
     img.src = event.target.result;
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const MAX_WIDTH = 600; 
-      const MAX_HEIGHT = 600;
-      let width = img.width;
-      let height = img.height;
-
-      if (width > height) {
-        if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
-      } else {
-        if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
-      }
-      canvas.width = width;
-      canvas.height = height;
+      const MAX = 600; 
+      let w = img.width, h = img.height;
+      if (w > h) { if (w > MAX) { h *= MAX / w; w = MAX; } } 
+      else { if (h > MAX) { w *= MAX / h; h = MAX; } }
+      canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
+      ctx.drawImage(img, 0, 0, w, h);
       callback(canvas.toDataURL('image/jpeg', 0.6)); 
     };
   };
 };
 
-// --- 1. VISTA DEL FEED (REPARADO Y CON LIKES) ---
-const Feed = ({ user }) => {
+// --- 1. FEED (Con poderes secretos para Admins) ---
+const Feed = ({ user, isAdmin }) => {
   const [posts, setPosts] = useState([]);
-  const [usersMap, setUsersMap] = useState({}); // Diccionario de todas las niñas
+  const [usersMap, setUsersMap] = useState({});
   const [text, setText] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -44,122 +36,91 @@ const Feed = ({ user }) => {
 
   useEffect(() => {
     if (!user) return;
-
-    // 1. Escuchar a TODOS los usuarios para tener los nombres siempre actualizados (Reparación del bug)
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const usersObj = {};
-      snapshot.forEach(doc => { usersObj[doc.id] = doc.data(); });
-      setUsersMap(usersObj);
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+      const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
+      setUsersMap(uMap);
     });
-
-    // 2. Escuchar las publicaciones
     const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
-    const unsubPosts = onSnapshot(q, (snapshot) => {
-      setPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubPosts = onSnapshot(q, (snap) => {
+      setPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-
     return () => { unsubUsers(); unsubPosts(); };
   }, [user]);
 
   const handlePublish = async () => {
     if (!text && !imageFile) return;
     setUploading(true);
-
-    const savePostToDB = async (photoBase64 = null) => {
+    const savePost = async (photoBase64 = null) => {
       await addDoc(collection(db, 'posts'), {
-        text: text,
-        imageURL: photoBase64,
-        authorId: user.uid,
-        likedBy: [], // Array vacío para guardar quién le da like
-        createdAt: serverTimestamp()
+        text: text, imageURL: photoBase64, authorId: user.uid, likedBy: [], createdAt: serverTimestamp()
       });
-      setText('');
-      setImageFile(null);
-      setUploading(false);
+      setText(''); setImageFile(null); setUploading(false);
     };
-
-    if (imageFile) compressImage(imageFile, savePostToDB);
-    else savePostToDB();
+    if (imageFile) compressImage(imageFile, savePost); else savePost();
   };
 
-  // Función para dar/quitar like
-  const toggleLike = async (postId, currentLikedBy = []) => {
+  const toggleLike = async (postId, currentLikedBy) => {
     const postRef = doc(db, 'posts', postId);
     if (currentLikedBy.includes(user.uid)) {
-      // Ya le dio like, se lo quitamos
       await updateDoc(postRef, { likedBy: currentLikedBy.filter(uid => uid !== user.uid) });
     } else {
-      // No le ha dado, se lo añadimos
       await updateDoc(postRef, { likedBy: [...currentLikedBy, user.uid] });
     }
+  };
+
+  // PODERES DE ADMIN: Añadir/Quitar likes fantasmas
+  const addFakeLikes = async (postId, currentLikedBy, amount) => {
+    const bots = Array.from({length: amount}, () => `bot_${Math.random()}`);
+    await updateDoc(doc(db, 'posts', postId), { likedBy: [...currentLikedBy, ...bots] });
+  };
+
+  const removeFakeLikes = async (postId, currentLikedBy, amount) => {
+    const realLikes = currentLikedBy.filter(uid => !uid.startsWith('bot_'));
+    const bots = currentLikedBy.filter(uid => uid.startsWith('bot_'));
+    bots.splice(0, amount); // Elimina bots
+    await updateDoc(doc(db, 'posts', postId), { likedBy: [...realLikes, ...bots] });
   };
 
   return (
     <div>
       <h1 className="page-title">Feed</h1>
-      
       <div className="create-post-card">
-        <textarea 
-          className="post-input" placeholder="¿Qué quieres compartir con la élite hoy?" 
-          value={text} onChange={(e) => setText(e.target.value)} rows="3"
-        />
-        {imageFile && <p style={{fontSize: '0.8rem', color: '#4A3265', marginBottom: '10px'}}>✓ Foto adjuntada</p>}
+        <textarea className="post-input" placeholder="¿Qué quieres compartir?" value={text} onChange={(e) => setText(e.target.value)} rows="3" />
+        {imageFile && <p style={{fontSize: '0.8rem', color: '#4A3265', marginBottom: '10px'}}>✓ Foto lista</p>}
         <div className="post-actions">
-          <div className="upload-photo-btn" onClick={() => fileInputRef.current.click()}>📷 Añadir foto</div>
-          <input type="file" accept="image/*" ref={fileInputRef} style={{display: 'none'}} onChange={(e) => setImageFile(e.target.files[0])} />
-          <button onClick={handlePublish} className="login-btn" style={{marginTop: 0, padding: '10px 20px'}} disabled={uploading}>
-            {uploading ? 'Subiendo...' : 'Publicar'}
+          <div className="upload-photo-btn" onClick={() => fileInputRef.current.click()}>📷 Foto</div>
+          <input type="file" accept="image/*" ref={fileInputRef} style={{display:'none'}} onChange={(e) => setImageFile(e.target.files[0])} />
+          <button onClick={handlePublish} className="login-btn" style={{marginTop:0, padding:'10px 20px'}} disabled={uploading}>
+            {uploading ? '...' : 'Publicar'}
           </button>
         </div>
       </div>
 
       {posts.map(post => {
-        // Buscamos el nombre/foto actual en el diccionario. Si acaba de cargar, usamos un texto por defecto
         const author = usersMap[post.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
-        
-        // Lógica de Likes
         const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
         const isLikedByMe = likedByArray.includes(user.uid);
         
-        let likersText = '';
-        if (likedByArray.length > 0) {
-          const names = likedByArray.map(uid => {
-             if (uid === user.uid) return "ti";
-             // Cogemos solo el primer nombre para que no ocupe mucho
-             return usersMap[uid]?.name?.split(' ')[0] || "Alguien";
-          });
-          
-          if (names.length === 1) likersText = `Le gusta a ${names[0]}`;
-          else if (names.length === 2) likersText = `Le gusta a ${names[0]} y ${names[1]}`;
-          else likersText = `Le gusta a ${names[0]}, ${names[1]} y ${names.length - 2} más`;
-        }
-
         return (
           <div key={post.id} className="post-card">
             <div className="post-header">
-              <img src={author.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} alt="Avatar" className="post-avatar" />
+              <img src={author.photoURL} alt="Avatar" className="post-avatar" />
               <span className="post-author">{author.name}</span>
             </div>
             {post.imageURL && <img src={post.imageURL} alt="Post" className="post-image" />}
-            {post.text && (
-              <div className="post-body">
-                <p className="post-text">{post.text}</p>
+            {post.text && <div className="post-body"><p className="post-text">{post.text}</p></div>}
+            
+            <div className="post-footer" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
+              <div onClick={() => toggleLike(post.id, likedByArray)} style={{cursor:'pointer', fontSize:'1.4rem'}}>
+                {isLikedByMe ? '❤️' : '🤍'} <span style={{fontSize:'1rem', color:'var(--text-main)'}}>{likedByArray.length}</span>
               </div>
-            )}
-            <div className="post-footer" style={{flexDirection: 'column', alignItems: 'flex-start', gap: '5px'}}>
-              <div 
-                onClick={() => toggleLike(post.id, likedByArray)} 
-                style={{cursor: 'pointer', userSelect: 'none', fontSize: '1.4rem', display: 'flex', alignItems: 'center', transition: 'transform 0.1s'}}
-                onMouseDown={e => e.currentTarget.style.transform = 'scale(0.8)'}
-                onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
-                onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
-              >
-                {isLikedByMe ? '❤️' : '🤍'} 
-                <span style={{fontSize: '1rem', color: 'var(--text-main)', fontWeight: '600', marginLeft: '8px'}}>{likedByArray.length}</span>
-              </div>
-              {likersText && (
-                <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '500'}}>
-                  {likersText}
+              
+              {/* BOTONES SECRETOS SOLO PARA MONITORES */}
+              {isAdmin && (
+                <div className="admin-secret-likes">
+                  <span style={{fontSize:'0.7rem', color:'var(--text-muted)', display:'flex', alignItems:'center'}}>ADMIN LIKES:</span>
+                  <button className="admin-btn" onClick={() => addFakeLikes(post.id, likedByArray, 10)}>+10</button>
+                  <button className="admin-btn" onClick={() => removeFakeLikes(post.id, likedByArray, 10)}>-10</button>
                 </div>
               )}
             </div>
@@ -170,46 +131,112 @@ const Feed = ({ user }) => {
   );
 };
 
-// --- 2. VISTA DEL PERFIL ---
+// --- 2. RANKING ---
+const Ranking = () => {
+  const [usersList, setUsersList] = useState([]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'users'), (snap) => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Ordenar por seguidores de mayor a menor
+      list.sort((a, b) => (b.followers || 0) - (a.followers || 0));
+      setUsersList(list);
+    });
+    return () => unsub();
+  }, []);
+
+  const getMedal = (index) => {
+    if (index === 0) return '🥇';
+    if (index === 1) return '🥈';
+    if (index === 2) return '🥉';
+    return index + 1;
+  };
+
+  return (
+    <div>
+      <h1 className="page-title">Top Talentos</h1>
+      <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>La élite de The Castoras House en tiempo real.</p>
+      <div className="ranking-list">
+        {usersList.map((u, index) => (
+          <div key={u.id} className="ranking-item">
+            <div className="ranking-pos">{getMedal(index)}</div>
+            <img src={u.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} alt="Avatar" className="ranking-avatar" />
+            <div className="ranking-info">
+              <span className="ranking-name">{u.name || u.email.split('@')[0]}</span>
+              <span className="ranking-score">{u.followers || 0} seguidores</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// --- 3. PANEL DE CONTROL DIOS (SOLO ADMINS) ---
+const AdminControl = () => {
+  const [usersList, setUsersList] = useState([]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'users'), (snap) => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.followers || 0) - (a.followers || 0));
+      setUsersList(list);
+    });
+    return () => unsub();
+  }, []);
+
+  const updateFollowers = async (uid, currentFollowers, amount) => {
+    const newTotal = Math.max(0, (currentFollowers || 0) + amount); // No permite bajar de 0
+    await updateDoc(doc(db, 'users', uid), { followers: newTotal });
+  };
+
+  return (
+    <div>
+      <h1 className="page-title" style={{color: '#4A3265'}}>Panel Dios</h1>
+      <p style={{textAlign: 'center', color: 'var(--text-muted)', marginBottom:'20px'}}>Modifica la reputación de las influencers.</p>
+      
+      {usersList.map(u => (
+        <div key={u.id} className="admin-user-row">
+          <div>
+            <div style={{fontWeight: 'bold', fontSize: '0.9rem'}}>{u.name || u.email.split('@')[0]}</div>
+            <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{u.followers || 0} Seg.</div>
+          </div>
+          <div className="admin-controls">
+            <button className="admin-btn" onClick={() => updateFollowers(u.id, u.followers, -50)}>-50</button>
+            <button className="admin-btn" onClick={() => updateFollowers(u.id, u.followers, +100)}>+100</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// --- 4. PERFIL Y RESTO ---
 const Perfil = ({ user, handleLogout }) => {
+  // (Mismo código de perfil que ya tenías)
   const [profileData, setProfileData] = useState({ name: '', photoURL: '', followers: 0 });
   const [userPosts, setUserPosts] = useState([]);
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState('');
-  const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (!user) return;
     const userRef = doc(db, 'users', user.uid);
-    const unsubUser = onSnapshot(userRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setProfileData(docSnap.data());
-        if (!newName) setNewName(docSnap.data().name || '');
-      } else {
-        setDoc(userRef, { name: "Nueva Influencer", photoURL: "", followers: 0, email: user.email });
-      }
+    const unsubUser = onSnapshot(userRef, (d) => {
+      if (d.exists()) { setProfileData(d.data()); if (!newName) setNewName(d.data().name || ''); } 
+      else setDoc(userRef, { name: "Nueva Influencer", photoURL: "", followers: 0, email: user.email });
     });
-
     const q = query(collection(db, 'posts'), where("authorId", "==", user.uid), orderBy('createdAt', 'desc'));
-    const unsubPosts = onSnapshot(q, (snapshot) => {
-      setUserPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-
+    const unsubPosts = onSnapshot(q, (s) => setUserPosts(s.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     return () => { unsubUser(); unsubPosts(); };
   }, [user]);
 
   const handlePhotoChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    setUploading(true);
-    compressImage(file, (base64) => {
-      updateDoc(doc(db, 'users', user.uid), { photoURL: base64 })
-        .then(() => setUploading(false))
-        .catch(() => { alert("Error al subir."); setUploading(false); });
-    });
+    compressImage(file, (base64) => updateDoc(doc(db, 'users', user.uid), { photoURL: base64 }));
   };
-
   const handleSaveName = async () => {
     if (!newName.trim()) return;
     await updateDoc(doc(db, 'users', user.uid), { name: newName });
@@ -219,17 +246,12 @@ const Perfil = ({ user, handleLogout }) => {
   return (
     <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center'}}>
       <h1 className="page-title">El Ego</h1>
-      
       <div className="profile-header">
         <div className="profile-avatar-container" onClick={() => fileInputRef.current.click()}>
-          <img 
-            src={profileData.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} 
-            alt="Avatar" className="profile-avatar" style={{ opacity: uploading ? 0.5 : 1 }}
-          />
+          <img src={profileData.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} alt="Avatar" className="profile-avatar" />
           <div className="profile-avatar-overlay">📷</div>
         </div>
         <input type="file" accept="image/*" ref={fileInputRef} style={{display: 'none'}} onChange={handlePhotoChange} />
-
         {isEditingName ? (
           <div className="profile-name-edit">
             <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} style={{padding: '8px', width: '200px'}} />
@@ -240,64 +262,27 @@ const Perfil = ({ user, handleLogout }) => {
             <h2 style={{fontFamily: 'Playfair Display', fontSize: '1.8rem'}}>{profileData.name || "Tu Nombre"} ✎</h2>
           </div>
         )}
-        <p style={{color: 'var(--text-muted)'}}>{user.email}</p>
       </div>
-
       <div className="stats-container">
-        <div className="stat-box">
-          <div className="stat-number">{profileData.followers}</div>
-          <div className="stat-label">Seguidores</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-number">{userPosts.length}</div>
-          <div className="stat-label">Publicaciones</div>
-        </div>
+        <div className="stat-box"><div className="stat-number">{profileData.followers}</div><div className="stat-label">Seguidores</div></div>
+        <div className="stat-box"><div className="stat-number">{userPosts.length}</div><div className="stat-label">Publicaciones</div></div>
       </div>
-
       <div className="profile-grid">
-        {userPosts.map(post => (
-          post.imageURL ? (
-            <img key={post.id} src={post.imageURL} alt="Post" className="grid-item" />
-          ) : (
-            <div key={post.id} className="grid-item" style={{display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', fontSize: '0.7rem', textAlign: 'center'}}>
-              {post.text.substring(0, 30)}...
-            </div>
-          )
-        ))}
+        {userPosts.map(post => post.imageURL ? <img key={post.id} src={post.imageURL} alt="Post" className="grid-item" /> : <div key={post.id} className="grid-item" style={{display:'flex', alignItems:'center', justifyContent:'center', padding:'10px', fontSize:'0.7rem'}}>{post.text.substring(0,20)}...</div>)}
       </div>
-
-      <button onClick={handleLogout} className="login-btn" style={{width: '100%', background: '#EAEAEA', color: 'var(--text-main)', boxShadow: 'none'}}>
+      <button onClick={handleLogout} className="login-btn" style={{width: '100%', background: '#EAEAEA', color: 'var(--text-main)', boxShadow: 'none', marginTop: '20px'}}>
         Cerrar Sesión
       </button>
     </div>
   );
 };
 
-// --- VISTAS TEMPORALES ---
 const Campanas = () => (
-  <div>
-    <h1 className="page-title">Campañas</h1>
-    <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>Tablón de misiones activas.</p>
-  </div>
-);
-
-const Ranking = () => (
-  <div>
-    <h1 className="page-title">Top Talentos</h1>
-    <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>Clasificación en tiempo real.</p>
-  </div>
-);
-
-const Admin = ({ handleLogout }) => (
-  <div style={{textAlign: 'center'}}>
-    <h1 className="page-title">Panel Dios</h1>
-    <p style={{color: 'var(--text-muted)', marginBottom: '30px'}}>Bienvenido, Monitor.</p>
-    <button onClick={handleLogout} className="login-btn">Desconectar</button>
-  </div>
+  <div><h1 className="page-title">Campañas</h1><p style={{textAlign: 'center', color: 'var(--text-muted)'}}>Tablón de misiones activas.</p></div>
 );
 
 // --- NAVEGACIÓN Y APP PRINCIPAL ---
-const BottomNav = () => {
+const BottomNav = ({ isAdmin }) => {
   const location = useLocation();
   const currentPath = location.pathname;
   return (
@@ -306,6 +291,9 @@ const BottomNav = () => {
       <Link to="/campanas" className={`nav-item ${currentPath === '/campanas' ? 'active' : ''}`}><span className="nav-icon">🎯</span><span>Campañas</span></Link>
       <Link to="/ranking" className={`nav-item ${currentPath === '/ranking' ? 'active' : ''}`}><span className="nav-icon">🏆</span><span>Ranking</span></Link>
       <Link to="/perfil" className={`nav-item ${currentPath === '/perfil' ? 'active' : ''}`}><span className="nav-icon">👤</span><span>Perfil</span></Link>
+      {isAdmin && (
+        <Link to="/admin" className={`nav-item ${currentPath === '/admin' ? 'active' : ''}`}><span className="nav-icon">👁️</span><span>Control</span></Link>
+      )}
     </nav>
   );
 };
@@ -323,12 +311,10 @@ function App() {
   }, []);
 
   const handleLogin = async (e) => {
-    e.preventDefault();
-    setError(''); 
+    e.preventDefault(); setError(''); 
     try { await signInWithEmailAndPassword(auth, email, password); } 
-    catch (error) { setError("Credenciales incorrectas. Vuelve a intentarlo."); }
+    catch (error) { setError("Credenciales incorrectas."); }
   };
-
   const handleLogout = () => signOut(auth);
 
   if (loading) return <div style={{textAlign: 'center', marginTop: '100px'}}>Cargando sistema...</div>;
@@ -340,19 +326,14 @@ function App() {
         <div className="app-layout">
           <main className="main-content">
             <Routes>
-              {isAdmin ? (
-                <Route path="*" element={<Admin handleLogout={handleLogout} />} />
-              ) : (
-                <>
-                  <Route path="/" element={<Feed user={user} />} />
-                  <Route path="/campanas" element={<Campanas />} />
-                  <Route path="/ranking" element={<Ranking />} />
-                  <Route path="/perfil" element={<Perfil user={user} handleLogout={handleLogout} />} />
-                </>
-              )}
+              <Route path="/" element={<Feed user={user} isAdmin={isAdmin} />} />
+              <Route path="/campanas" element={<Campanas />} />
+              <Route path="/ranking" element={<Ranking />} />
+              <Route path="/perfil" element={<Perfil user={user} handleLogout={handleLogout} />} />
+              {isAdmin && <Route path="/admin" element={<AdminControl />} />}
             </Routes>
           </main>
-          {!isAdmin && <BottomNav />}
+          <BottomNav isAdmin={isAdmin} />
         </div>
       </Router>
     );

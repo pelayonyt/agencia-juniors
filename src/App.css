@@ -387,3 +387,96 @@ input:focus {
   object-fit: cover;
   background-color: #EAEAEA;
 }
+
+/* --- RANKING DE TALENTOS --- */
+.ranking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.ranking-item {
+  display: flex;
+  align-items: center;
+  background: var(--box-bg);
+  padding: 15px;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(45, 30, 62, 0.05);
+  gap: 15px;
+  transition: transform 0.2s ease;
+}
+
+.ranking-pos {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  width: 35px;
+  text-align: center;
+  color: var(--text-main);
+}
+
+.ranking-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #EAEAEA;
+}
+
+.ranking-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.ranking-name {
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: var(--text-main);
+}
+
+.ranking-score {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* --- PANEL DIOS (ADMIN) --- */
+.admin-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: white;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  border-left: 4px solid var(--text-main);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.admin-btn {
+  background: #F0F0F0;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  transition: background 0.2s;
+}
+.admin-btn:hover { background: #E0E0E0; }
+
+.admin-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-secret-likes {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #EAEAEA;
+}
