@@ -6,7 +6,6 @@ import { auth, db } from "./firebase";
 import './App.css';
 
 // --- MAGIA ANTI-PAGOS: COMPRESOR DE IMÁGENES ---
-// Esta función la usamos tanto para el avatar como para las fotos del feed
 const compressImage = (file, callback) => {
   const reader = new FileReader();
   reader.readAsDataURL(file);
@@ -15,7 +14,7 @@ const compressImage = (file, callback) => {
     img.src = event.target.result;
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const MAX_WIDTH = 600; // Un poco más grande para el feed, pero segura
+      const MAX_WIDTH = 600; 
       const MAX_HEIGHT = 600;
       let width = img.width;
       let height = img.height;
@@ -29,34 +28,37 @@ const compressImage = (file, callback) => {
       canvas.height = height;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, width, height);
-      callback(canvas.toDataURL('image/jpeg', 0.6)); // Devuelve el texto Base64
+      callback(canvas.toDataURL('image/jpeg', 0.6)); 
     };
   };
 };
 
-
-// --- 1. VISTA DEL FEED ---
+// --- 1. VISTA DEL FEED (REPARADO Y CON LIKES) ---
 const Feed = ({ user }) => {
   const [posts, setPosts] = useState([]);
+  const [usersMap, setUsersMap] = useState({}); // Diccionario de todas las niñas
   const [text, setText] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [userData, setUserData] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Traer los datos de la niña actual y todas las publicaciones
   useEffect(() => {
     if (!user) return;
-    const unsubUser = onSnapshot(doc(db, 'users', user.uid), (d) => {
-      if (d.exists()) setUserData(d.data());
+
+    // 1. Escuchar a TODOS los usuarios para tener los nombres siempre actualizados (Reparación del bug)
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const usersObj = {};
+      snapshot.forEach(doc => { usersObj[doc.id] = doc.data(); });
+      setUsersMap(usersObj);
     });
 
+    // 2. Escuchar las publicaciones
     const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
     const unsubPosts = onSnapshot(q, (snapshot) => {
       setPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    return () => { unsubUser(); unsubPosts(); };
+    return () => { unsubUsers(); unsubPosts(); };
   }, [user]);
 
   const handlePublish = async () => {
@@ -68,9 +70,7 @@ const Feed = ({ user }) => {
         text: text,
         imageURL: photoBase64,
         authorId: user.uid,
-        authorName: userData?.name || "Influencer",
-        authorAvatar: userData?.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png",
-        likes: 0,
+        likedBy: [], // Array vacío para guardar quién le da like
         createdAt: serverTimestamp()
       });
       setText('');
@@ -78,10 +78,19 @@ const Feed = ({ user }) => {
       setUploading(false);
     };
 
-    if (imageFile) {
-      compressImage(imageFile, savePostToDB);
+    if (imageFile) compressImage(imageFile, savePostToDB);
+    else savePostToDB();
+  };
+
+  // Función para dar/quitar like
+  const toggleLike = async (postId, currentLikedBy = []) => {
+    const postRef = doc(db, 'posts', postId);
+    if (currentLikedBy.includes(user.uid)) {
+      // Ya le dio like, se lo quitamos
+      await updateDoc(postRef, { likedBy: currentLikedBy.filter(uid => uid !== user.uid) });
     } else {
-      savePostToDB();
+      // No le ha dado, se lo añadimos
+      await updateDoc(postRef, { likedBy: [...currentLikedBy, user.uid] });
     }
   };
 
@@ -89,20 +98,14 @@ const Feed = ({ user }) => {
     <div>
       <h1 className="page-title">Feed</h1>
       
-      {/* Caja para crear nueva publicación */}
       <div className="create-post-card">
         <textarea 
-          className="post-input" 
-          placeholder="¿Qué quieres compartir con la élite hoy?" 
-          value={text} 
-          onChange={(e) => setText(e.target.value)}
-          rows="3"
+          className="post-input" placeholder="¿Qué quieres compartir con la élite hoy?" 
+          value={text} onChange={(e) => setText(e.target.value)} rows="3"
         />
         {imageFile && <p style={{fontSize: '0.8rem', color: '#4A3265', marginBottom: '10px'}}>✓ Foto adjuntada</p>}
         <div className="post-actions">
-          <div className="upload-photo-btn" onClick={() => fileInputRef.current.click()}>
-            📷 Añadir foto
-          </div>
+          <div className="upload-photo-btn" onClick={() => fileInputRef.current.click()}>📷 Añadir foto</div>
           <input type="file" accept="image/*" ref={fileInputRef} style={{display: 'none'}} onChange={(e) => setImageFile(e.target.files[0])} />
           <button onClick={handlePublish} className="login-btn" style={{marginTop: 0, padding: '10px 20px'}} disabled={uploading}>
             {uploading ? 'Subiendo...' : 'Publicar'}
@@ -110,28 +113,62 @@ const Feed = ({ user }) => {
         </div>
       </div>
 
-      {/* Muro de publicaciones */}
-      {posts.map(post => (
-        <div key={post.id} className="post-card">
-          <div className="post-header">
-            <img src={post.authorAvatar} alt="Avatar" className="post-avatar" />
-            <span className="post-author">{post.authorName}</span>
-          </div>
-          {post.imageURL && <img src={post.imageURL} alt="Post" className="post-image" />}
-          {post.text && (
-            <div className="post-body">
-              <p className="post-text">{post.text}</p>
+      {posts.map(post => {
+        // Buscamos el nombre/foto actual en el diccionario. Si acaba de cargar, usamos un texto por defecto
+        const author = usersMap[post.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
+        
+        // Lógica de Likes
+        const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
+        const isLikedByMe = likedByArray.includes(user.uid);
+        
+        let likersText = '';
+        if (likedByArray.length > 0) {
+          const names = likedByArray.map(uid => {
+             if (uid === user.uid) return "ti";
+             // Cogemos solo el primer nombre para que no ocupe mucho
+             return usersMap[uid]?.name?.split(' ')[0] || "Alguien";
+          });
+          
+          if (names.length === 1) likersText = `Le gusta a ${names[0]}`;
+          else if (names.length === 2) likersText = `Le gusta a ${names[0]} y ${names[1]}`;
+          else likersText = `Le gusta a ${names[0]}, ${names[1]} y ${names.length - 2} más`;
+        }
+
+        return (
+          <div key={post.id} className="post-card">
+            <div className="post-header">
+              <img src={author.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} alt="Avatar" className="post-avatar" />
+              <span className="post-author">{author.name}</span>
             </div>
-          )}
-          <div className="post-footer">
-            <span style={{cursor: 'pointer'}}>🤍 {post.likes} Likes</span>
+            {post.imageURL && <img src={post.imageURL} alt="Post" className="post-image" />}
+            {post.text && (
+              <div className="post-body">
+                <p className="post-text">{post.text}</p>
+              </div>
+            )}
+            <div className="post-footer" style={{flexDirection: 'column', alignItems: 'flex-start', gap: '5px'}}>
+              <div 
+                onClick={() => toggleLike(post.id, likedByArray)} 
+                style={{cursor: 'pointer', userSelect: 'none', fontSize: '1.4rem', display: 'flex', alignItems: 'center', transition: 'transform 0.1s'}}
+                onMouseDown={e => e.currentTarget.style.transform = 'scale(0.8)'}
+                onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+                onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+              >
+                {isLikedByMe ? '❤️' : '🤍'} 
+                <span style={{fontSize: '1rem', color: 'var(--text-main)', fontWeight: '600', marginLeft: '8px'}}>{likedByArray.length}</span>
+              </div>
+              {likersText && (
+                <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '500'}}>
+                  {likersText}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };
-
 
 // --- 2. VISTA DEL PERFIL ---
 const Perfil = ({ user, handleLogout }) => {
@@ -144,8 +181,6 @@ const Perfil = ({ user, handleLogout }) => {
 
   useEffect(() => {
     if (!user) return;
-    
-    // 1. Escuchar datos del usuario
     const userRef = doc(db, 'users', user.uid);
     const unsubUser = onSnapshot(userRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -156,7 +191,6 @@ const Perfil = ({ user, handleLogout }) => {
       }
     });
 
-    // 2. Escuchar SOLO las publicaciones de esta niña para su cuadrícula
     const q = query(collection(db, 'posts'), where("authorId", "==", user.uid), orderBy('createdAt', 'desc'));
     const unsubPosts = onSnapshot(q, (snapshot) => {
       setUserPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -220,7 +254,6 @@ const Perfil = ({ user, handleLogout }) => {
         </div>
       </div>
 
-      {/* Cuadrícula de fotos estilo Instagram */}
       <div className="profile-grid">
         {userPosts.map(post => (
           post.imageURL ? (
@@ -240,7 +273,7 @@ const Perfil = ({ user, handleLogout }) => {
   );
 };
 
-// --- VISTAS TEMPORALES (Campañas, Ranking, Admin) ---
+// --- VISTAS TEMPORALES ---
 const Campanas = () => (
   <div>
     <h1 className="page-title">Campañas</h1>
@@ -262,7 +295,6 @@ const Admin = ({ handleLogout }) => (
     <button onClick={handleLogout} className="login-btn">Desconectar</button>
   </div>
 );
-
 
 // --- NAVEGACIÓN Y APP PRINCIPAL ---
 const BottomNav = () => {
