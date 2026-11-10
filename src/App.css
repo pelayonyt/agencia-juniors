@@ -624,3 +624,22 @@ input:focus {
   opacity: 1;
   transform: scale(1.1);
 }
+
+/* --- ANIMACIÓN DOBLE TAP (CORAZÓN GIGANTE) --- */
+.big-heart {
+  position: absolute;
+  font-size: 6rem;
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 0 20px rgba(211, 47, 47, 0.6);
+  animation: popHeart 0.8s ease-out forwards;
+  pointer-events: none;
+  z-index: 10;
+}
+
+@keyframes popHeart {
+  0% { transform: scale(0); opacity: 0; }
+  15% { transform: scale(1.2); opacity: 1; }
+  30% { transform: scale(1); opacity: 1; }
+  70% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.5); opacity: 0; }
+}

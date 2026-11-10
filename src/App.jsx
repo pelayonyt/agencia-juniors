@@ -65,6 +65,73 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
   );
 };
 
+// --- COMPONENTE DE PUBLICACIÓN (CON DOBLE TAP) ---
+const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost }) => {
+  const [showHeart, setShowHeart] = useState(false);
+  
+  const author = usersMap[post.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
+  const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
+  const isLikedByMe = likedByArray.includes(user.uid);
+  
+  let likersText = '';
+  if (likedByArray.length > 0) {
+    const names = likedByArray.map(uid => uid === user.uid ? "ti" : (usersMap[uid]?.name?.split(' ')[0] || "Alguien"));
+    if (names.length === 1) likersText = `Le gusta a ${names[0]}`;
+    else if (names.length === 2) likersText = `Le gusta a ${names[0]} y ${names[1]}`;
+    else likersText = `Le gusta a ${names[0]}, ${names[1]} y ${names.length - 2} más`;
+  }
+
+  const handleDoubleTap = () => {
+    if (!isLikedByMe) toggleLike(post.id, likedByArray);
+    setShowHeart(true);
+    setTimeout(() => setShowHeart(false), 800);
+  };
+
+  return (
+    <div className="post-card">
+      <div className="post-header">
+        <img src={author.photoURL} alt="Avatar" className="post-avatar" />
+        <span className="post-author">{author.name}</span>
+        {post.campaignName && post.campaignName !== 'General' && <span className="post-tag">{post.campaignName}</span>}
+        {(post.authorId === user.uid || isAdmin) && (
+          <button className="delete-post-btn" onClick={() => handleDeletePost(post.id)}>🗑️</button>
+        )}
+      </div>
+      
+      {/* DOBLE TAP EN IMAGEN */}
+      {post.imageURL && (
+        <div 
+          onDoubleClick={handleDoubleTap} 
+          style={{position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center'}}
+        >
+          <img src={post.imageURL} alt="Post" className="post-image" style={{cursor: 'pointer', userSelect: 'none'}} />
+          {showHeart && <div className="big-heart">❤️</div>}
+        </div>
+      )}
+      
+      {/* DOBLE TAP EN TEXTO (Si no hay imagen) */}
+      {post.text && (
+        <div 
+          className="post-body" 
+          onDoubleClick={handleDoubleTap} 
+          style={{cursor: 'pointer', position: 'relative', userSelect: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center'}}
+        >
+          <p className="post-text" style={{width: '100%'}}>{post.text}</p>
+          {showHeart && !post.imageURL && <div className="big-heart" style={{color: 'rgba(211,47,47,0.5)', fontSize: '4rem'}}>❤️</div>}
+        </div>
+      )}
+      
+      <div className="post-footer" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
+        <div onClick={() => toggleLike(post.id, likedByArray)} style={{cursor:'pointer', fontSize:'1.4rem'}}>
+          {isLikedByMe ? '❤️' : '🤍'} <span style={{fontSize:'1rem', color:'var(--text-main)'}}>{likedByArray.length}</span>
+        </div>
+        {likersText && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{likersText}</div>}
+        {isAdmin && <AdminPostControls postId={post.id} likedByArray={likedByArray} />}
+      </div>
+    </div>
+  );
+};
+
 
 // --- 1. FEED ---
 const Feed = ({ user, isAdmin }) => {
@@ -116,7 +183,6 @@ const Feed = ({ user, isAdmin }) => {
     }
   };
 
-  // Función para borrar publicación
   const handleDeletePost = async (postId) => {
     if (window.confirm("¿Seguro que quieres eliminar esta publicación?")) {
       await deleteDoc(doc(db, 'posts', postId));
@@ -161,44 +227,9 @@ const Feed = ({ user, isAdmin }) => {
       {displayedPosts.length === 0 ? (
         <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>No hay publicaciones con esta etiqueta.</p>
       ) : (
-        displayedPosts.map(post => {
-          const author = usersMap[post.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
-          const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
-          const isLikedByMe = likedByArray.includes(user.uid);
-          
-          let likersText = '';
-          if (likedByArray.length > 0) {
-            const names = likedByArray.map(uid => uid === user.uid ? "ti" : (usersMap[uid]?.name?.split(' ')[0] || "Alguien"));
-            if (names.length === 1) likersText = `Le gusta a ${names[0]}`;
-            else if (names.length === 2) likersText = `Le gusta a ${names[0]} y ${names[1]}`;
-            else likersText = `Le gusta a ${names[0]}, ${names[1]} y ${names.length - 2} más`;
-          }
-
-          return (
-            <div key={post.id} className="post-card">
-              <div className="post-header">
-                <img src={author.photoURL} alt="Avatar" className="post-avatar" />
-                <span className="post-author">{author.name}</span>
-                {post.campaignName && post.campaignName !== 'General' && <span className="post-tag">{post.campaignName}</span>}
-                
-                {/* BOTÓN DE BORRAR: Visible si eres la creadora del post o eres admin */}
-                {(post.authorId === user.uid || isAdmin) && (
-                  <button className="delete-post-btn" onClick={() => handleDeletePost(post.id)}>🗑️</button>
-                )}
-              </div>
-              {post.imageURL && <img src={post.imageURL} alt="Post" className="post-image" />}
-              {post.text && <div className="post-body"><p className="post-text">{post.text}</p></div>}
-              
-              <div className="post-footer" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
-                <div onClick={() => toggleLike(post.id, likedByArray)} style={{cursor:'pointer', fontSize:'1.4rem'}}>
-                  {isLikedByMe ? '❤️' : '🤍'} <span style={{fontSize:'1rem', color:'var(--text-main)'}}>{likedByArray.length}</span>
-                </div>
-                {likersText && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{likersText}</div>}
-                {isAdmin && <AdminPostControls postId={post.id} likedByArray={likedByArray} />}
-              </div>
-            </div>
-          );
-        })
+        displayedPosts.map(post => (
+          <PostItem key={post.id} post={post} user={user} usersMap={usersMap} isAdmin={isAdmin} toggleLike={toggleLike} handleDeletePost={handleDeletePost} />
+        ))
       )}
     </div>
   );
@@ -213,7 +244,6 @@ const Campanas = ({ isAdmin, user }) => {
   const [reward, setReward] = useState('');
 
   useEffect(() => {
-    // Traemos también a las usuarias para saber sus nombres
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
       setUsersMap(uMap);
@@ -267,7 +297,6 @@ const Campanas = ({ isAdmin, user }) => {
           const reactionsArray = Array.isArray(camp.reactions) ? camp.reactions : [];
           const isReactedByMe = reactionsArray.includes(user.uid);
           
-          // Lógica de nombres de quién se apunta
           let likersText = '';
           if (reactionsArray.length > 0) {
             const names = reactionsArray.map(uid => uid === user.uid ? "ti" : (usersMap[uid]?.name?.split(' ')[0] || "Alguien"));
@@ -283,7 +312,6 @@ const Campanas = ({ isAdmin, user }) => {
                 {camp.reward && <span className="campaign-reward">{camp.reward}</span>}
               </div>
               <p className="campaign-desc">{camp.description}</p>
-              
               <div className="reaction-row" style={{flexDirection: 'column', alignItems: 'flex-start', gap: '8px'}}>
                 <button className={`reaction-btn ${isReactedByMe ? 'active' : ''}`} onClick={() => toggleReaction(camp.id, reactionsArray)}>
                   🔥 Me apunto <span>({reactionsArray.length})</span>
@@ -359,23 +387,32 @@ const AdminControl = () => {
 };
 
 // --- 5. PERFIL ---
-const Perfil = ({ user, handleLogout }) => {
+const Perfil = ({ user, isAdmin, handleLogout }) => {
   const [profileData, setProfileData] = useState({ name: '', photoURL: '', followers: 0 });
   const [userPosts, setUserPosts] = useState([]);
+  const [usersMap, setUsersMap] = useState({});
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState('');
   const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (!user) return;
+    
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+      const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
+      setUsersMap(uMap);
+    });
+
     const userRef = doc(db, 'users', user.uid);
     const unsubUser = onSnapshot(userRef, (d) => {
       if (d.exists()) { setProfileData(d.data()); if (!newName) setNewName(d.data().name || ''); } 
       else setDoc(userRef, { name: "Nueva Influencer", photoURL: "", followers: 0, email: user.email });
     });
+    
     const q = query(collection(db, 'posts'), where("authorId", "==", user.uid), orderBy('createdAt', 'desc'));
     const unsubPosts = onSnapshot(q, (s) => setUserPosts(s.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
-    return () => { unsubUser(); unsubPosts(); };
+    
+    return () => { unsubUsers(); unsubUser(); unsubPosts(); };
   }, [user]);
 
   const handlePhotoChange = (e) => {
@@ -383,10 +420,23 @@ const Perfil = ({ user, handleLogout }) => {
     if (!file) return;
     compressImage(file, (base64) => updateDoc(doc(db, 'users', user.uid), { photoURL: base64 }));
   };
+  
   const handleSaveName = async () => {
     if (!newName.trim()) return;
     await updateDoc(doc(db, 'users', user.uid), { name: newName });
     setIsEditingName(false);
+  };
+
+  const toggleLike = async (postId, currentLikedBy) => {
+    const postRef = doc(db, 'posts', postId);
+    if (currentLikedBy.includes(user.uid)) await updateDoc(postRef, { likedBy: currentLikedBy.filter(uid => uid !== user.uid) });
+    else await updateDoc(postRef, { likedBy: [...currentLikedBy, user.uid] });
+  };
+
+  const handleDeletePost = async (postId) => {
+    if (window.confirm("¿Seguro que quieres eliminar esta publicación?")) {
+      await deleteDoc(doc(db, 'posts', postId));
+    }
   };
 
   return (
@@ -413,10 +463,15 @@ const Perfil = ({ user, handleLogout }) => {
         <div className="stat-box"><div className="stat-number">{profileData.followers}</div><div className="stat-label">Seguidores</div></div>
         <div className="stat-box"><div className="stat-number">{userPosts.length}</div><div className="stat-label">Publicaciones</div></div>
       </div>
-      <div className="profile-grid">
-        {userPosts.map(post => post.imageURL ? <img key={post.id} src={post.imageURL} alt="Post" className="grid-item" /> : <div key={post.id} className="grid-item" style={{display:'flex', alignItems:'center', justifyContent:'center', padding:'10px', fontSize:'0.7rem'}}>{post.text.substring(0,20)}...</div>)}
+      
+      <h3 style={{marginTop: '20px', marginBottom: '15px', fontFamily: 'Playfair Display', width: '100%', textAlign: 'left'}}>Mi Galería</h3>
+      <div style={{width: '100%'}}>
+        {userPosts.map(post => (
+          <PostItem key={post.id} post={post} user={user} usersMap={usersMap} isAdmin={isAdmin} toggleLike={toggleLike} handleDeletePost={handleDeletePost} />
+        ))}
       </div>
-      <button onClick={handleLogout} className="login-btn" style={{width: '100%', background: '#EAEAEA', color: 'var(--text-main)', boxShadow: 'none', marginTop: '20px'}}>
+
+      <button onClick={handleLogout} className="login-btn" style={{width: '100%', background: '#EAEAEA', color: 'var(--text-main)', boxShadow: 'none', marginTop: '30px'}}>
         Cerrar Sesión
       </button>
     </div>
@@ -469,7 +524,7 @@ function App() {
               <Route path="/" element={<Feed user={user} isAdmin={isAdmin} />} />
               <Route path="/campanas" element={<Campanas isAdmin={isAdmin} user={user} />} />
               <Route path="/ranking" element={<Ranking />} />
-              <Route path="/perfil" element={<Perfil user={user} handleLogout={handleLogout} />} />
+              <Route path="/perfil" element={<Perfil user={user} isAdmin={isAdmin} handleLogout={handleLogout} />} />
               {isAdmin && <Route path="/admin" element={<AdminControl />} />}
             </Routes>
           </main>
