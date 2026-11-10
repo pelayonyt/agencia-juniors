@@ -2,28 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where, deleteDoc } from "firebase/firestore";
-import { auth, db } from "./firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage"; // ✨ NUEVO
+import { auth, db, storage } from "./firebase"; // ✨ NUEVO
 import './App.css';
-
-const compressImage = (file, callback) => {
-  const reader = new FileReader();
-  reader.readAsDataURL(file);
-  reader.onload = (event) => {
-    const img = new Image();
-    img.src = event.target.result;
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const MAX = 600; 
-      let w = img.width, h = img.height;
-      if (w > h) { if (w > MAX) { h *= MAX / w; w = MAX; } } 
-      else { if (h > MAX) { w *= MAX / h; h = MAX; } }
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, w, h);
-      callback(canvas.toDataURL('image/jpeg', 0.6)); 
-    };
-  };
-};
 
 const getRank = (followers) => {
   if (followers < 100) return "Don Nadie";
@@ -72,6 +53,7 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
   );
 };
 
+// --- COMPONENTE DE PUBLICACIÓN ---
 const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost }) => {
   const [showHeart, setShowHeart] = useState(false);
   const [showComments, setShowComments] = useState(false);
@@ -83,6 +65,10 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
   const commentsArray = Array.isArray(post.comments) ? post.comments : [];
   const isLikedByMe = likedByArray.includes(user.uid);
   
+  // Compatibilidad hacia atrás: lee URL nueva o URL vieja en Base64
+  const mediaUrl = post.mediaURL || post.imageURL;
+  const isVideo = post.mediaType === 'video';
+
   let likersText = '';
   if (likedByArray.length > 0) {
     const names = likedByArray.map(uid => uid === user.uid ? "ti" : (usersMap[uid]?.name?.split(' ')[0] || "Alguien"));
@@ -100,11 +86,7 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
   const handleAddComment = async (e) => {
     e.preventDefault();
     if (!commentText.trim()) return;
-    const newComment = {
-      id: Date.now().toString() + Math.random(),
-      authorId: user.uid,
-      text: commentText.trim(),
-    };
+    const newComment = { id: Date.now().toString() + Math.random(), authorId: user.uid, text: commentText.trim() };
     await updateDoc(doc(db, 'posts', post.id), { comments: [...commentsArray, newComment] });
     setCommentText('');
     setExpandedComments(true); 
@@ -134,9 +116,14 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
         )}
       </div>
       
-      {post.imageURL && (
+      {/* RENDERIZADO DE FOTO O VÍDEO */}
+      {mediaUrl && (
         <div onDoubleClick={handleDoubleTap} style={{position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
-          <img src={post.imageURL} alt="Post" className="post-image" style={{cursor: 'pointer', userSelect: 'none'}} />
+          {isVideo ? (
+            <video src={mediaUrl} controls className="post-video" />
+          ) : (
+            <img src={mediaUrl} alt="Post" className="post-image" style={{cursor: 'pointer', userSelect: 'none'}} />
+          )}
           {showHeart && <div className="big-heart">❤️</div>}
         </div>
       )}
@@ -144,7 +131,7 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
       {post.text && (
         <div className="post-body" onDoubleClick={handleDoubleTap} style={{cursor: 'pointer', position: 'relative', userSelect: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
           <p className="post-text" style={{width: '100%'}}>{post.text}</p>
-          {showHeart && !post.imageURL && <div className="big-heart" style={{color: 'rgba(211,47,47,0.5)', fontSize: '4rem'}}>❤️</div>}
+          {showHeart && !mediaUrl && <div className="big-heart" style={{color: 'rgba(211,47,47,0.5)', fontSize: '4rem'}}>❤️</div>}
         </div>
       )}
       
@@ -168,7 +155,6 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
             <input type="text" className="comment-input" placeholder="Añade un comentario..." value={commentText} onChange={(e) => setCommentText(e.target.value)} />
             <button type="submit" className="comment-submit-btn" disabled={!commentText.trim()}>Enviar</button>
           </form>
-
           {commentsArray.length === 0 ? (
             <p style={{fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center'}}>Sé la primera en comentar.</p>
           ) : (
@@ -188,7 +174,6 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
                   </div>
                 );
               })}
-              
               {commentsArray.length > COMMENTS_LIMIT && (
                 <button className="view-more-comments" onClick={() => setExpandedComments(!expandedComments)}>
                   {expandedComments ? 'Ocultar comentarios' : `Ver los ${commentsArray.length - COMMENTS_LIMIT} comentarios anteriores`}
@@ -202,14 +187,14 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
   );
 };
 
-
+// --- 1. FEED ---
 const Feed = ({ user, isAdmin }) => {
   const [posts, setPosts] = useState([]);
   const [usersMap, setUsersMap] = useState({});
   const [campaigns, setCampaigns] = useState([]);
   
   const [text, setText] = useState('');
-  const [imageFile, setImageFile] = useState(null);
+  const [mediaFile, setMediaFile] = useState(null); // Ahora guarda fotos O vídeos
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -231,16 +216,36 @@ const Feed = ({ user, isAdmin }) => {
     return () => { unsubUsers(); unsubPosts(); unsubCamps(); };
   }, [user]);
 
+  // ✨ NUEVO MOTOR DE SUBIDA A STORAGE
   const handlePublish = async () => {
-    if (!text && !imageFile) return;
+    if (!text && !mediaFile) return;
     setUploading(true);
-    const savePost = async (photoBase64 = null) => {
-      await addDoc(collection(db, 'posts'), {
-        text: text, imageURL: photoBase64, authorId: user.uid, campaignName: selectedCampaignForUpload, likedBy: [], comments: [], createdAt: serverTimestamp()
-      });
-      setText(''); setImageFile(null); setSelectedCampaignForUpload('General'); setUploading(false);
-    };
-    if (imageFile) compressImage(imageFile, savePost); else savePost();
+
+    let mediaURL = null;
+    let mediaType = null;
+
+    if (mediaFile) {
+      const isVideo = mediaFile.type.startsWith('video/');
+      mediaType = isVideo ? 'video' : 'image';
+      
+      // Subimos el archivo a la nube
+      const fileRef = ref(storage, `posts/${Date.now()}_${mediaFile.name}`);
+      await uploadBytes(fileRef, mediaFile);
+      mediaURL = await getDownloadURL(fileRef); // Obtenemos el enlace público
+    }
+
+    await addDoc(collection(db, 'posts'), {
+      text: text, 
+      mediaURL: mediaURL, 
+      mediaType: mediaType,
+      authorId: user.uid, 
+      campaignName: selectedCampaignForUpload, 
+      likedBy: [], 
+      comments: [], 
+      createdAt: serverTimestamp()
+    });
+    
+    setText(''); setMediaFile(null); setSelectedCampaignForUpload('General'); setUploading(false);
   };
 
   const toggleLike = async (postId, currentLikedBy) => {
@@ -274,7 +279,12 @@ const Feed = ({ user, isAdmin }) => {
 
       <div className="create-post-card">
         <textarea className="post-input" placeholder="¿Qué quieres compartir hoy?" value={text} onChange={(e) => setText(e.target.value)} rows="3" />
-        {imageFile && <p style={{fontSize: '0.8rem', color: '#4A3265', marginBottom: '10px'}}>✓ Foto adjuntada</p>}
+        
+        {mediaFile && (
+          <p style={{fontSize: '0.8rem', color: '#4A3265', marginBottom: '10px'}}>
+            ✓ {mediaFile.type.startsWith('video/') ? 'Vídeo' : 'Foto'} adjuntado
+          </p>
+        )}
         
         <div style={{marginBottom: '15px'}}>
           <span style={{fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '5px'}}>Etiqueta tu publicación:</span>
@@ -287,9 +297,10 @@ const Feed = ({ user, isAdmin }) => {
         </div>
 
         <div className="post-actions">
-          <div className="upload-photo-btn" onClick={() => fileInputRef.current.click()}>📷 Foto</div>
-          <input type="file" accept="image/*" ref={fileInputRef} style={{display:'none'}} onChange={(e) => setImageFile(e.target.files[0])} />
-          <button onClick={handlePublish} className="login-btn" style={{marginTop:0, padding:'10px 20px'}} disabled={uploading}>{uploading ? '...' : 'Publicar'}</button>
+          <div className="upload-photo-btn" onClick={() => fileInputRef.current.click()}>📷 Multimedia</div>
+          {/* ✨ AHORA ACEPTA FOTOS Y VÍDEOS */}
+          <input type="file" accept="image/*,video/*" ref={fileInputRef} style={{display:'none'}} onChange={(e) => setMediaFile(e.target.files[0])} />
+          <button onClick={handlePublish} className="login-btn" style={{marginTop:0, padding:'10px 20px'}} disabled={uploading}>{uploading ? 'Subiendo...' : 'Publicar'}</button>
         </div>
       </div>
 
@@ -304,6 +315,7 @@ const Feed = ({ user, isAdmin }) => {
   );
 };
 
+// --- 2. CAMPAÑAS ---
 const Campanas = ({ isAdmin, user }) => {
   const [campaigns, setCampaigns] = useState([]);
   const [usersMap, setUsersMap] = useState({});
@@ -385,7 +397,6 @@ const Campanas = ({ isAdmin, user }) => {
                 <h2 className="campaign-title" style={{margin: 0}}>{camp.title}</h2>
                 <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
                   {camp.reward && <span className="campaign-reward">{camp.reward}</span>}
-                  {/* BOTÓN DE BORRAR CAMPAÑA (SOLO ADMIN) */}
                   {isAdmin && (
                     <button className="delete-post-btn" onClick={() => handleDeleteCampaign(camp.id)} style={{margin: 0}}>🗑️</button>
                   )}
@@ -451,6 +462,14 @@ const AdminControl = () => {
     });
     return () => unsub();
   }, []);
+
+  // ✨ NUEVA FUNCIÓN PARA BORRAR USUARIOS DEL JUEGO
+  const handleDeleteUser = async (uid, name) => {
+    if (window.confirm(`¿Seguro que quieres eliminar a ${name || 'este usuario'}? Esto lo borrará del ranking y del panel, aunque su cuenta de Firebase seguirá existiendo.`)) {
+      await deleteDoc(doc(db, 'users', uid));
+    }
+  };
+
   return (
     <div>
       <h1 className="page-title" style={{color: '#4A3265'}}>Panel Dios</h1>
@@ -460,7 +479,10 @@ const AdminControl = () => {
             <div style={{fontWeight: 'bold', fontSize: '0.9rem'}}>{u.name || u.email.split('@')[0]}</div>
             <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{u.followers || 0} Seg.</div>
           </div>
-          <AdminUserControls uid={u.id} currentFollowers={u.followers} />
+          <div style={{display: 'flex', alignItems: 'center'}}>
+            <AdminUserControls uid={u.id} currentFollowers={u.followers} />
+            <button className="delete-post-btn" onClick={() => handleDeleteUser(u.id, u.name)} style={{marginLeft: '10px', marginTop: 0}}>🗑️</button>
+          </div>
         </div>
       ))}
     </div>
@@ -473,6 +495,7 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
   const [usersMap, setUsersMap] = useState({});
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState('');
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -495,10 +518,16 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
     return () => { unsubUsers(); unsubUser(); unsubPosts(); };
   }, [user]);
 
-  const handlePhotoChange = (e) => {
+  // ✨ AVATARES AHORA USAN STORAGE REAL
+  const handlePhotoChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    compressImage(file, (base64) => updateDoc(doc(db, 'users', user.uid), { photoURL: base64 }));
+    setUploadingAvatar(true);
+    const fileRef = ref(storage, `avatars/${user.uid}_${Date.now()}`);
+    await uploadBytes(fileRef, file);
+    const url = await getDownloadURL(fileRef);
+    await updateDoc(doc(db, 'users', user.uid), { photoURL: url });
+    setUploadingAvatar(false);
   };
   
   const handleSaveName = async () => {
@@ -524,7 +553,7 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
       <h1 className="page-title">Tu Perfil</h1>
       <div className="profile-header">
         <div className="profile-avatar-container" onClick={() => fileInputRef.current.click()}>
-          <img src={profileData.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} alt="Avatar" className="profile-avatar" />
+          <img src={profileData.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} alt="Avatar" className="profile-avatar" style={{opacity: uploadingAvatar ? 0.5 : 1}} />
           <div className="profile-avatar-overlay">📷</div>
         </div>
         <input type="file" accept="image/*" ref={fileInputRef} style={{display: 'none'}} onChange={handlePhotoChange} />
@@ -547,10 +576,28 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
       </div>
       
       <h3 style={{marginTop: '20px', marginBottom: '15px', fontFamily: 'Playfair Display', width: '100%', textAlign: 'left'}}>Mi Galería</h3>
-      <div style={{width: '100%'}}>
-        {userPosts.map(post => (
-          <PostItem key={post.id} post={post} user={user} usersMap={usersMap} isAdmin={isAdmin} toggleLike={toggleLike} handleDeletePost={handleDeletePost} />
-        ))}
+      
+      {/* CUADRÍCULA DE FOTOS/VÍDEOS */}
+      <div className="profile-grid">
+        {userPosts.map(post => {
+          const mediaUrl = post.mediaURL || post.imageURL;
+          return mediaUrl ? (
+            <div key={post.id} className="grid-item" style={{position: 'relative', overflow: 'hidden', backgroundColor: '#000'}}>
+              {post.mediaType === 'video' ? (
+                <>
+                  <video src={mediaUrl} className="grid-item" style={{objectFit: 'cover'}} />
+                  <div className="video-icon">▶</div>
+                </>
+              ) : (
+                <img src={mediaUrl} alt="Post" className="grid-item" />
+              )}
+            </div>
+          ) : (
+            <div key={post.id} className="grid-item" style={{display:'flex', alignItems:'center', justifyContent:'center', padding:'10px', fontSize:'0.7rem', textAlign: 'center'}}>
+              {post.text.substring(0,20)}...
+            </div>
+          );
+        })}
       </div>
 
       <button onClick={handleLogout} className="login-btn" style={{width: '100%', background: '#EAEAEA', color: 'var(--text-main)', boxShadow: 'none', marginTop: '30px'}}>
