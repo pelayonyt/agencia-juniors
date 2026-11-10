@@ -765,3 +765,19 @@ input:focus {
   margin-bottom: 8px;
   border: 1px solid rgba(45, 74, 42, 0.2);
 }
+
+/* --- MINI RANGO PARA FEED Y RANKING --- */
+.mini-rank {
+  font-size: 0.6rem;
+  color: #2D4A2A;
+  background: rgba(215, 232, 213, 0.8);
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-left: 8px;
+  border: 1px solid rgba(45, 74, 42, 0.2);
+  display: inline-block;
+  vertical-align: middle;
+}

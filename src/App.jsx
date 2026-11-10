@@ -25,6 +25,7 @@ const compressImage = (file, callback) => {
   };
 };
 
+// FUNCIÓN GLOBAL DE RANGO
 const getRank = (followers) => {
   if (followers < 100) return "Don Nadie";
   if (followers < 500) return "Aspirante";
@@ -72,13 +73,14 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
   );
 };
 
+// --- COMPONENTE DE PUBLICACIÓN ---
 const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost }) => {
   const [showHeart, setShowHeart] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [expandedComments, setExpandedComments] = useState(false); 
   
-  const author = usersMap[post.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
+  const author = usersMap[post.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png', followers: 0 };
   const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
   const commentsArray = Array.isArray(post.comments) ? post.comments : [];
   const isLikedByMe = likedByArray.includes(user.uid);
@@ -116,7 +118,6 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
     }
   };
 
-  // NUEVA LÓGICA DE COMENTARIOS: El más nuevo siempre arriba.
   const reversedComments = [...commentsArray].reverse();
   const COMMENTS_LIMIT = 2;
   const visibleComments = expandedComments ? reversedComments : reversedComments.slice(0, COMMENTS_LIMIT);
@@ -125,7 +126,11 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
     <div className="post-card">
       <div className="post-header">
         <img src={author.photoURL} alt="Avatar" className="post-avatar" />
-        <span className="post-author">{author.name}</span>
+        <div style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap'}}>
+          <span className="post-author">{author.name}</span>
+          {/* ETIQUETA PÚBLICA DE RANGO */}
+          <span className="mini-rank">{getRank(author.followers || 0)}</span>
+        </div>
         {post.campaignName && post.campaignName !== 'General' && <span className="post-tag">{post.campaignName}</span>}
         {(post.authorId === user.uid || isAdmin) && (
           <button className="delete-post-btn" onClick={() => handleDeletePost(post.id)}>🗑️</button>
@@ -199,6 +204,7 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
     </div>
   );
 };
+
 
 const Feed = ({ user, isAdmin }) => {
   const [posts, setPosts] = useState([]);
@@ -413,7 +419,11 @@ const Ranking = () => {
             <div className="ranking-pos">{getMedal(index)}</div>
             <img src={u.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} alt="Avatar" className="ranking-avatar" />
             <div className="ranking-info">
-              <span className="ranking-name">{u.name || u.email.split('@')[0]}</span>
+              <div style={{display: 'flex', alignItems: 'center'}}>
+                <span className="ranking-name">{u.name || u.email.split('@')[0]}</span>
+                {/* ETIQUETA PÚBLICA DE RANGO EN EL RANKING */}
+                <span className="mini-rank">{getRank(u.followers || 0)}</span>
+              </div>
               <span className="ranking-score">{u.followers || 0} seguidores</span>
             </div>
           </div>
@@ -459,15 +469,18 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
 
   useEffect(() => {
     if (!user) return;
+    
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
       setUsersMap(uMap);
     });
+
     const userRef = doc(db, 'users', user.uid);
     const unsubUser = onSnapshot(userRef, (d) => {
       if (d.exists()) { setProfileData(d.data()); if (!newName) setNewName(d.data().name || ''); } 
       else setDoc(userRef, { name: "Nueva Influencer", photoURL: "", followers: 0, email: user.email });
     });
+    
     const q = query(collection(db, 'posts'), where("authorId", "==", user.uid), orderBy('createdAt', 'desc'));
     const unsubPosts = onSnapshot(q, (s) => setUserPosts(s.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     
@@ -507,8 +520,6 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
           <div className="profile-avatar-overlay">📷</div>
         </div>
         <input type="file" accept="image/*" ref={fileInputRef} style={{display: 'none'}} onChange={handlePhotoChange} />
-        
-        {/* AQUÍ ESTÁ EL RANGO DINÁMICO */}
         <div className="profile-rank">{getRank(profileData.followers || 0)}</div>
 
         {isEditingName ? (
