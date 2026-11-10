@@ -2,9 +2,16 @@ import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where, deleteDoc } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage"; // ✨ NUEVO
-import { auth, db, storage } from "./firebase"; // ✨ NUEVO
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { auth, db, storage } from "./firebase";
 import './App.css';
+
+// ✨ LISTA DE NOMBRES INVENTADOS PARA LOS BOTS
+const FAKE_NAMES = [
+  "María", "Laura", "Lucía", "Carmen", "Ana", "Marta", "Paula", "Elena", 
+  "Clara", "Sofía", "Julia", "Alba", "Carla", "Sara", "Valeria", "Claudia", 
+  "Andrea", "Natalia", "Marina", "Daniela", "Martina", "Alejandra"
+];
 
 const getRank = (followers) => {
   if (followers < 100) return "Don Nadie";
@@ -15,11 +22,17 @@ const getRank = (followers) => {
 
 const AdminPostControls = ({ postId, likedByArray }) => {
   const [amount, setAmount] = useState(10);
+  
   const addFakeLikes = async () => {
     if (amount <= 0) return;
-    const bots = Array.from({length: amount}, () => `bot_${Math.random()}`);
+    const bots = Array.from({length: amount}, () => {
+      // Elegimos un nombre al azar y lo guardamos en la ID del bot
+      const randomName = FAKE_NAMES[Math.floor(Math.random() * FAKE_NAMES.length)];
+      return `bot_${randomName}_${Math.random().toString(36).substring(2, 9)}`;
+    });
     await updateDoc(doc(db, 'posts', postId), { likedBy: [...likedByArray, ...bots] });
   };
+  
   const removeFakeLikes = async () => {
     if (amount <= 0) return;
     const realLikes = likedByArray.filter(uid => !uid.startsWith('bot_'));
@@ -27,6 +40,7 @@ const AdminPostControls = ({ postId, likedByArray }) => {
     bots.splice(0, amount);
     await updateDoc(doc(db, 'posts', postId), { likedBy: [...realLikes, ...bots] });
   };
+
   return (
     <div className="admin-secret-likes">
       <span style={{fontSize:'0.7rem', color:'var(--text-muted)', display:'flex', alignItems:'center'}}>ADMIN:</span>
@@ -53,7 +67,6 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
   );
 };
 
-// --- COMPONENTE DE PUBLICACIÓN ---
 const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost }) => {
   const [showHeart, setShowHeart] = useState(false);
   const [showComments, setShowComments] = useState(false);
@@ -65,13 +78,18 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
   const commentsArray = Array.isArray(post.comments) ? post.comments : [];
   const isLikedByMe = likedByArray.includes(user.uid);
   
-  // Compatibilidad hacia atrás: lee URL nueva o URL vieja en Base64
   const mediaUrl = post.mediaURL || post.imageURL;
   const isVideo = post.mediaType === 'video';
 
+  // ✨ MAGIA: Traducimos los IDs de los bots a sus nombres asignados
   let likersText = '';
   if (likedByArray.length > 0) {
-    const names = likedByArray.map(uid => uid === user.uid ? "ti" : (usersMap[uid]?.name?.split(' ')[0] || "Alguien"));
+    const names = likedByArray.map(uid => {
+      if (uid === user.uid) return "ti";
+      if (uid.startsWith('bot_')) return uid.split('_')[1]; // Extraemos el nombre realista que generó el Admin
+      return usersMap[uid]?.name?.split(' ')[0] || "Alguien"; // Si es un usuario real, cogemos su nombre
+    });
+
     if (names.length === 1) likersText = `Le gusta a ${names[0]}`;
     else if (names.length === 2) likersText = `Le gusta a ${names[0]} y ${names[1]}`;
     else likersText = `Le gusta a ${names[0]}, ${names[1]} y ${names.length - 2} más`;
@@ -116,7 +134,6 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
         )}
       </div>
       
-      {/* RENDERIZADO DE FOTO O VÍDEO */}
       {mediaUrl && (
         <div onDoubleClick={handleDoubleTap} style={{position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
           {isVideo ? (
@@ -187,14 +204,13 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
   );
 };
 
-// --- 1. FEED ---
 const Feed = ({ user, isAdmin }) => {
   const [posts, setPosts] = useState([]);
   const [usersMap, setUsersMap] = useState({});
   const [campaigns, setCampaigns] = useState([]);
   
   const [text, setText] = useState('');
-  const [mediaFile, setMediaFile] = useState(null); // Ahora guarda fotos O vídeos
+  const [mediaFile, setMediaFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -216,7 +232,6 @@ const Feed = ({ user, isAdmin }) => {
     return () => { unsubUsers(); unsubPosts(); unsubCamps(); };
   }, [user]);
 
-  // ✨ NUEVO MOTOR DE SUBIDA A STORAGE
   const handlePublish = async () => {
     if (!text && !mediaFile) return;
     setUploading(true);
@@ -227,22 +242,13 @@ const Feed = ({ user, isAdmin }) => {
     if (mediaFile) {
       const isVideo = mediaFile.type.startsWith('video/');
       mediaType = isVideo ? 'video' : 'image';
-      
-      // Subimos el archivo a la nube
       const fileRef = ref(storage, `posts/${Date.now()}_${mediaFile.name}`);
       await uploadBytes(fileRef, mediaFile);
-      mediaURL = await getDownloadURL(fileRef); // Obtenemos el enlace público
+      mediaURL = await getDownloadURL(fileRef);
     }
 
     await addDoc(collection(db, 'posts'), {
-      text: text, 
-      mediaURL: mediaURL, 
-      mediaType: mediaType,
-      authorId: user.uid, 
-      campaignName: selectedCampaignForUpload, 
-      likedBy: [], 
-      comments: [], 
-      createdAt: serverTimestamp()
+      text: text, mediaURL: mediaURL, mediaType: mediaType, authorId: user.uid, campaignName: selectedCampaignForUpload, likedBy: [], comments: [], createdAt: serverTimestamp()
     });
     
     setText(''); setMediaFile(null); setSelectedCampaignForUpload('General'); setUploading(false);
@@ -298,7 +304,6 @@ const Feed = ({ user, isAdmin }) => {
 
         <div className="post-actions">
           <div className="upload-photo-btn" onClick={() => fileInputRef.current.click()}>📷 Multimedia</div>
-          {/* ✨ AHORA ACEPTA FOTOS Y VÍDEOS */}
           <input type="file" accept="image/*,video/*" ref={fileInputRef} style={{display:'none'}} onChange={(e) => setMediaFile(e.target.files[0])} />
           <button onClick={handlePublish} className="login-btn" style={{marginTop:0, padding:'10px 20px'}} disabled={uploading}>{uploading ? 'Subiendo...' : 'Publicar'}</button>
         </div>
@@ -315,7 +320,6 @@ const Feed = ({ user, isAdmin }) => {
   );
 };
 
-// --- 2. CAMPAÑAS ---
 const Campanas = ({ isAdmin, user }) => {
   const [campaigns, setCampaigns] = useState([]);
   const [usersMap, setUsersMap] = useState({});
@@ -463,7 +467,6 @@ const AdminControl = () => {
     return () => unsub();
   }, []);
 
-  // ✨ NUEVA FUNCIÓN PARA BORRAR USUARIOS DEL JUEGO
   const handleDeleteUser = async (uid, name) => {
     if (window.confirm(`¿Seguro que quieres eliminar a ${name || 'este usuario'}? Esto lo borrará del ranking y del panel, aunque su cuenta de Firebase seguirá existiendo.`)) {
       await deleteDoc(doc(db, 'users', uid));
@@ -518,7 +521,6 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
     return () => { unsubUsers(); unsubUser(); unsubPosts(); };
   }, [user]);
 
-  // ✨ AVATARES AHORA USAN STORAGE REAL
   const handlePhotoChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -577,7 +579,6 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
       
       <h3 style={{marginTop: '20px', marginBottom: '15px', fontFamily: 'Playfair Display', width: '100%', textAlign: 'left'}}>Mi Galería</h3>
       
-      {/* CUADRÍCULA DE FOTOS/VÍDEOS */}
       <div className="profile-grid">
         {userPosts.map(post => {
           const mediaUrl = post.mediaURL || post.imageURL;
