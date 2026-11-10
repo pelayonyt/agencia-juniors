@@ -150,3 +150,65 @@ input:focus {
 .login-btn:active {
   transform: scale(0.98);
 }
+
+/* --- ESTRUCTURA INTERNA Y NAVEGACIÓN --- */
+
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: var(--bg-color);
+}
+
+.main-content {
+  flex: 1;
+  padding: 20px;
+  padding-bottom: 90px; /* Espacio para que el menú no tape el contenido */
+  max-width: 600px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background-color: var(--box-bg);
+  display: flex;
+  justify-content: space-around;
+  padding: 15px 0;
+  box-shadow: 0 -5px 20px rgba(45, 30, 62, 0.05);
+  z-index: 1000;
+  border-top: 1px solid #F0F0F0;
+}
+
+.nav-item {
+  color: var(--text-muted);
+  text-decoration: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 0.75rem;
+  gap: 6px;
+  transition: color 0.3s ease;
+  font-weight: 500;
+}
+
+.nav-item.active, .nav-item:hover {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.nav-icon {
+  font-size: 1.4rem;
+}
+
+.page-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 2.2rem;
+  margin-bottom: 25px;
+  color: var(--text-main);
+  text-align: center;
+  letter-spacing: -0.5px;
+}
