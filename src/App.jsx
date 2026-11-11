@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+// ✨ AÑADIMOS useNavigate y useParams PARA NAVEGAR ENTRE PERFILES
+import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where, deleteDoc, limit, getDocs } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import imageCompression from 'browser-image-compression';
 import { auth, db, storage } from "./firebase";
 import './App.css';
 
@@ -66,6 +68,7 @@ const AdminPostControls = ({ postId, likedByArray, authorId }) => {
 const AdminUserControls = ({ uid, currentFollowers }) => {
   const [amount, setAmount] = useState(50);
   const [customMsg, setCustomMsg] = useState('');
+  const navigate = useNavigate(); // Herramienta para saltar al perfil
 
   const updateFollowers = async (isAdding) => {
     const val = isAdding ? amount : -amount;
@@ -118,11 +121,15 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
       </div>
       
       <div className="admin-control-group" style={{marginBottom: 0}}>
-        <span className="admin-control-label">Inyectar Comentario Falso</span>
-        <div style={{display: 'flex', gap: '8px', width: '100%'}}>
+        <span className="admin-control-label">Acciones</span>
+        <div style={{display: 'flex', gap: '8px', width: '100%', marginBottom: '10px'}}>
           <input type="text" placeholder="Ej: Qué foto tan rara..." value={customMsg} onChange={e => setCustomMsg(e.target.value)} className="admin-notif-input" />
           <button className="admin-btn" onClick={sendPsychologicalMessage}>💬 Enviar</button>
         </div>
+        {/* ✨ BOTÓN VER MURO DESDE PANEL DIOS */}
+        <button className="admin-btn" style={{width: '100%', background: '#F4F4F5', color: '#333'}} onClick={() => navigate(`/perfil/${uid}`)}>
+          👁️ Ver Muro Público
+        </button>
       </div>
     </div>
   );
@@ -133,6 +140,7 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [expandedComments, setExpandedComments] = useState(false); 
+  const navigate = useNavigate(); // Para pinchar en la foto de perfil
   
   const author = usersMap[post.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png', followers: 0 };
   const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
@@ -195,10 +203,11 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
   return (
     <div className="post-card">
       <div className="post-header">
-        <img src={author.photoURL} alt="Avatar" className="post-avatar" />
+        {/* ✨ FOTO Y NOMBRE CLICKABLES */}
+        <img src={author.photoURL} alt="Avatar" className="post-avatar clickable-avatar" onClick={() => navigate(`/perfil/${post.authorId}`)} />
         <div style={{display: 'flex', flexDirection: 'column', flex: 1}}>
           <div style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap'}}>
-            <span className="post-author">{author.name}</span>
+            <span className="post-author clickable-name" onClick={() => navigate(`/perfil/${post.authorId}`)}>{author.name}</span>
             <span className="mini-rank">{getRank(author.followers || 0)}</span>
           </div>
           <span className="post-date">{postDate}</span>
@@ -256,9 +265,9 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
                 const commentAuthor = usersMap[comment.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
                 return (
                   <div key={comment.id} className="comment-item">
-                    <img src={commentAuthor.photoURL} alt="Avatar" className="comment-avatar" />
+                    <img src={commentAuthor.photoURL} alt="Avatar" className="comment-avatar clickable-avatar" onClick={() => navigate(`/perfil/${comment.authorId}`)} />
                     <div className="comment-content">
-                      <div className="comment-author">{commentAuthor.name}</div>
+                      <div className="comment-author clickable-name" onClick={() => navigate(`/perfil/${comment.authorId}`)}>{commentAuthor.name}</div>
                       <div className="comment-text">{comment.text}</div>
                       {(comment.authorId === user.uid || isAdmin) && (
                         <button className="delete-comment-btn" onClick={() => handleDeleteComment(comment.id)}>Borrar</button>
@@ -284,6 +293,7 @@ const Feed = ({ user, isAdmin }) => {
   const [posts, setPosts] = useState([]);
   const [usersMap, setUsersMap] = useState({});
   const [campaigns, setCampaigns] = useState([]);
+  const navigate = useNavigate();
   
   const [text, setText] = useState('');
   const [mediaFile, setMediaFile] = useState(null);
@@ -327,17 +337,23 @@ const Feed = ({ user, isAdmin }) => {
       const isVideo = mediaFile.type.startsWith('video/');
       mediaType = isVideo ? 'video' : 'image';
       
+      let fileToUpload = mediaFile;
+
       if (isVideo) {
         const sizeInMB = mediaFile.size / (1024 * 1024);
         const LIMITE_MB = 100; 
         if (sizeInMB > LIMITE_MB) { 
-          alert(`Este vídeo pesa ${sizeInMB.toFixed(1)}MB (El máximo es ${LIMITE_MB}MB).`);
+          alert(`Tu vídeo pesa ${sizeInMB.toFixed(1)}MB (El máximo es ${LIMITE_MB}MB). Truco de influencer: envíatelo a ti misma por WhatsApp y súbelo desde ahí para comprimirlo.`);
           setUploading(false); return; 
         }
+      } else {
+        const options = { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true };
+        try { fileToUpload = await imageCompression(mediaFile, options); } 
+        catch (error) { console.log("No se pudo comprimir la imagen."); }
       }
 
-      const fileRef = ref(storage, `posts/${Date.now()}_${mediaFile.name}`);
-      const uploadTask = uploadBytesResumable(fileRef, mediaFile);
+      const fileRef = ref(storage, `posts/${Date.now()}_${fileToUpload.name}`);
+      const uploadTask = uploadBytesResumable(fileRef, fileToUpload);
 
       try {
         await new Promise((resolve, reject) => {
@@ -437,28 +453,17 @@ const Feed = ({ user, isAdmin }) => {
   );
 };
 
-// ✨ MOTOR DE NOTIFICACIONES BLINDADO (Sin bloqueos de Firebase)
 const Actividad = ({ user }) => {
   const [notifications, setNotifications] = useState([]);
   const [frozenUnread, setFrozenUnread] = useState(new Set()); 
 
   useEffect(() => {
     if (!user) return;
-    
-    // ✨ Pedimos las notificaciones sin ordenar (para no enfadar a Firebase)
     const q = query(collection(db, 'notifications'), where("recipientId", "==", user.uid));
     
     const unsub = onSnapshot(q, (snap) => {
       let notifs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      
-      // ✨ Las ordenamos manualmente usando la memoria del teléfono
-      notifs.sort((a, b) => {
-        const timeA = a.createdAt?.toMillis() || 0;
-        const timeB = b.createdAt?.toMillis() || 0;
-        return timeB - timeA;
-      });
-      
-      // Recortamos a las últimas 50
+      notifs.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
       notifs = notifs.slice(0, 50);
       setNotifications(notifs);
       
@@ -497,7 +502,6 @@ const Actividad = ({ user }) => {
       ) : (
         notifications.map(n => {
           const isVisuallyUnread = n.read === false || frozenUnread.has(n.id);
-          
           return (
             <div key={n.id} className={`notif-card ${isVisuallyUnread ? 'notif-unread' : ''}`}>
               <div className="notif-icon">{getIcon(n.type)}</div>
@@ -513,12 +517,12 @@ const Actividad = ({ user }) => {
   );
 };
 
-const Campanas = ({ isAdmin, user }) => {
+const Campanas = ({ isAdmin, user, usersMap }) => {
   const [campaigns, setCampaigns] = useState([]);
-  const [usersMap, setUsersMap] = useState({});
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [reward, setReward] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (user && !isAdmin) {
@@ -527,14 +531,10 @@ const Campanas = ({ isAdmin, user }) => {
   }, [user, isAdmin]);
 
   useEffect(() => {
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-      const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
-      setUsersMap(uMap);
-    });
     const unsubCamps = onSnapshot(query(collection(db, 'campaigns'), orderBy('createdAt', 'desc')), (snap) => {
       setCampaigns(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    return () => { unsubUsers(); unsubCamps(); };
+    return () => unsubCamps();
   }, []);
 
   const handleCreateCampaign = async (e) => {
@@ -551,7 +551,6 @@ const Campanas = ({ isAdmin, user }) => {
         updateDoc(doc(db, 'users', u.id), { unreadCampaigns: true });
       }
     });
-
     setTitle(''); setDesc(''); setReward('');
   };
 
@@ -612,6 +611,8 @@ const Campanas = ({ isAdmin, user }) => {
 
 const Ranking = () => {
   const [usersList, setUsersList] = useState([]);
+  const navigate = useNavigate();
+
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'users'), (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -630,9 +631,9 @@ const Ranking = () => {
         {usersList.map((u, index) => (
           <div key={u.id} className="ranking-item">
             <div className="ranking-pos">{getMedal(index)}</div>
-            <img src={u.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} alt="Avatar" className="ranking-avatar" />
+            <img src={u.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} alt="Avatar" className="ranking-avatar clickable-avatar" onClick={() => navigate(`/perfil/${u.id}`)} />
             <div className="ranking-info">
-              <div style={{display: 'flex', alignItems: 'center'}}><span className="ranking-name">{u.name || u.email.split('@')[0]}</span><span className="mini-rank">{getRank(u.followers || 0)}</span></div>
+              <div style={{display: 'flex', alignItems: 'center'}}><span className="ranking-name clickable-name" onClick={() => navigate(`/perfil/${u.id}`)}>{u.name || u.email.split('@')[0]}</span><span className="mini-rank">{getRank(u.followers || 0)}</span></div>
               <span className="ranking-score">{u.followers || 0} seguidores</span>
             </div>
           </div>
@@ -662,7 +663,6 @@ const AdminControl = () => {
       <h1 className="page-title" style={{color: '#4A3265'}}>Panel Dios</h1>
       {usersList.map(u => (
         <div key={u.id} className="admin-user-card">
-          
           <div className="admin-card-header">
             <div>
               <div style={{fontWeight: 'bold', fontSize: '1.05rem'}}>{u.name || u.email.split('@')[0]}</div>
@@ -670,7 +670,6 @@ const AdminControl = () => {
             </div>
             <button className="delete-post-btn" onClick={() => handleDeleteUser(u.id, u.name)} style={{margin: 0}}>🗑️ Borrar</button>
           </div>
-
           <AdminUserControls uid={u.id} currentFollowers={u.followers} />
         </div>
       ))}
@@ -678,7 +677,7 @@ const AdminControl = () => {
   );
 };
 
-// ✨ MOTOR DE PERFIL BLINDADO (Sin bloqueos de Firebase)
+// ✨ TU PROPIO PERFIL CON GALERÍA INTERACTIVA
 const Perfil = ({ user, isAdmin, handleLogout }) => {
   const [profileData, setProfileData] = useState({ name: '', photoURL: '', followers: 0 });
   const [userPosts, setUserPosts] = useState([]);
@@ -688,6 +687,7 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const fileInputRef = useRef(null);
   const [postLimit, setPostLimit] = useState(15);
+  const [viewingPost, setViewingPost] = useState(null); // ✨ Creado el visor de fotos grandes
 
   useEffect(() => {
     if (!user) return;
@@ -701,7 +701,6 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
       else setDoc(userRef, { name: "Nueva Influencer", photoURL: "", followers: 0, email: user.email });
     });
     
-    // ✨ Solucionado aquí también el bug del índice compuesto
     const q = query(collection(db, 'posts'), where("authorId", "==", user.uid));
     const unsubPosts = onSnapshot(q, (s) => {
       let userP = s.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -728,6 +727,44 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
     await updateDoc(doc(db, 'users', user.uid), { name: newName });
     setIsEditingName(false);
   };
+
+  const toggleLike = async (postId, currentLikedBy, authorId) => {
+    const postRef = doc(db, 'posts', postId);
+    if (currentLikedBy.includes(user.uid)) {
+      await updateDoc(postRef, { likedBy: currentLikedBy.filter(uid => uid !== user.uid) });
+    } else {
+      await updateDoc(postRef, { likedBy: [...currentLikedBy, user.uid] });
+      if (authorId !== user.uid) {
+        const myName = usersMap[user.uid]?.name || "Alguien";
+        await addDoc(collection(db, 'notifications'), {
+          recipientId: authorId,
+          text: `A ${myName} le ha gustado tu publicación.`,
+          type: 'like', read: false, createdAt: serverTimestamp()
+        });
+      }
+    }
+  };
+
+  const handleDeletePost = async (postId) => {
+    if (window.confirm("¿Seguro que quieres eliminar esta publicación?")) {
+      await deleteDoc(doc(db, 'posts', postId));
+      setViewingPost(null); // Vuelve a la galería al borrar
+    }
+  };
+
+  // Si han hecho click en una foto, mostramos el post en grande
+  if (viewingPost) {
+    // Buscamos la versión más actualizada del post
+    const currentPost = userPosts.find(p => p.id === viewingPost.id) || viewingPost;
+    return (
+      <div style={{width: '100%'}}>
+        <button className="back-to-gallery-btn" onClick={() => setViewingPost(null)}>
+          ⬅ Volver a tu galería
+        </button>
+        <PostItem post={currentPost} user={user} usersMap={usersMap} isAdmin={isAdmin} toggleLike={toggleLike} handleDeletePost={handleDeletePost} />
+      </div>
+    );
+  }
 
   return (
     <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center'}}>
@@ -762,13 +799,13 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
         {userPosts.map(post => {
           const mediaUrl = post.mediaURL || post.imageURL;
           return mediaUrl ? (
-            <div key={post.id} className="grid-item" style={{position: 'relative', overflow: 'hidden', backgroundColor: '#000'}}>
+            <div key={post.id} className="grid-item interactive-grid-item" style={{position: 'relative', overflow: 'hidden', backgroundColor: '#000'}} onClick={() => setViewingPost(post)}>
               {post.mediaType === 'video' ? (
                 <><video src={mediaUrl} className="grid-item" style={{objectFit: 'cover'}} /><div className="video-icon">▶</div></>
-              ) : (<img src={mediaUrl} alt="Post" className="grid-item" />)}
+              ) : (<img src={mediaUrl} alt="Post" className="grid-item" loading="lazy" />)}
             </div>
           ) : (
-            <div key={post.id} className="grid-item" style={{display:'flex', alignItems:'center', justifyContent:'center', padding:'10px', fontSize:'0.7rem', textAlign: 'center'}}>{post.text.substring(0,20)}...</div>
+            <div key={post.id} className="grid-item interactive-grid-item" style={{display:'flex', alignItems:'center', justifyContent:'center', padding:'10px', fontSize:'0.7rem', textAlign: 'center'}} onClick={() => setViewingPost(post)}>{post.text.substring(0,20)}...</div>
           );
         })}
       </div>
@@ -779,14 +816,129 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
   );
 };
 
+// ✨ EL NUEVO PERFIL PÚBLICO (Para ver y cotillear a otras chicas)
+const PerfilPublico = ({ currentUser, isAdmin }) => {
+  const { uid } = useParams(); // Saca la ID de la url
+  const navigate = useNavigate();
+  const [profileData, setProfileData] = useState(null);
+  const [userPosts, setUserPosts] = useState([]);
+  const [usersMap, setUsersMap] = useState({});
+  const [postLimit, setPostLimit] = useState(15);
+  const [viewingPost, setViewingPost] = useState(null);
+
+  useEffect(() => {
+    // Si pincha en su propio perfil, la mandamos a la pestaña Perfil normal
+    if (uid === currentUser.uid) {
+      navigate('/perfil', { replace: true });
+      return;
+    }
+
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+      const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
+      setUsersMap(uMap);
+    });
+
+    const unsubUser = onSnapshot(doc(db, 'users', uid), (d) => {
+      if (d.exists()) setProfileData(d.data());
+    });
+    
+    const q = query(collection(db, 'posts'), where("authorId", "==", uid));
+    const unsubPosts = onSnapshot(q, (s) => {
+      let userP = s.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      userP.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+      setUserPosts(userP.slice(0, postLimit));
+    });
+    
+    return () => { unsubUsers(); unsubUser(); unsubPosts(); };
+  }, [uid, currentUser.uid, navigate, postLimit]);
+
+  const toggleLike = async (postId, currentLikedBy, authorId) => {
+    const postRef = doc(db, 'posts', postId);
+    if (currentLikedBy.includes(currentUser.uid)) {
+      await updateDoc(postRef, { likedBy: currentLikedBy.filter(u => u !== currentUser.uid) });
+    } else {
+      await updateDoc(postRef, { likedBy: [...currentLikedBy, currentUser.uid] });
+      const myName = usersMap[currentUser.uid]?.name || "Alguien";
+      await addDoc(collection(db, 'notifications'), {
+        recipientId: authorId,
+        text: `A ${myName} le ha gustado tu publicación.`,
+        type: 'like', read: false, createdAt: serverTimestamp()
+      });
+    }
+  };
+
+  const handleDeletePost = async (postId) => {
+    if (window.confirm("¿Seguro que quieres eliminar esta publicación?")) {
+      await deleteDoc(doc(db, 'posts', postId));
+      setViewingPost(null);
+    }
+  };
+
+  if (!profileData) return <div style={{textAlign: 'center', marginTop: '50px'}}>Cargando perfil...</div>;
+
+  // Vista de Publicación en Grande
+  if (viewingPost) {
+    const currentPost = userPosts.find(p => p.id === viewingPost.id) || viewingPost;
+    return (
+      <div style={{width: '100%'}}>
+        <button className="back-to-gallery-btn" onClick={() => setViewingPost(null)}>
+          ⬅ Volver a la galería de {profileData.name?.split(' ')[0]}
+        </button>
+        <PostItem post={currentPost} user={currentUser} usersMap={usersMap} isAdmin={isAdmin} toggleLike={toggleLike} handleDeletePost={handleDeletePost} />
+      </div>
+    );
+  }
+
+  // Vista de Cuadrícula Pública
+  return (
+    <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center'}}>
+      <div className="profile-header" style={{marginTop: '20px'}}>
+        <img src={profileData.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} alt="Avatar" className="profile-avatar" />
+        <div className="profile-rank">{getRank(profileData.followers || 0)}</div>
+        <h2 style={{fontFamily: 'Playfair Display', fontSize: '1.8rem', marginTop: '10px'}}>{profileData.name}</h2>
+      </div>
+      
+      <div className="stats-container">
+        <div className="stat-box"><div className="stat-number">{profileData.followers || 0}</div><div className="stat-label">Seguidores</div></div>
+        <div className="stat-box"><div className="stat-number">{userPosts.length}</div><div className="stat-label">Publicaciones</div></div>
+      </div>
+      
+      <h3 style={{marginTop: '20px', marginBottom: '15px', fontFamily: 'Playfair Display', width: '100%', textAlign: 'left'}}>Galería</h3>
+      
+      <div className="profile-grid">
+        {userPosts.map(post => {
+          const mediaUrl = post.mediaURL || post.imageURL;
+          return mediaUrl ? (
+            <div key={post.id} className="grid-item interactive-grid-item" style={{position: 'relative', overflow: 'hidden', backgroundColor: '#000'}} onClick={() => setViewingPost(post)}>
+              {post.mediaType === 'video' ? (
+                <><video src={mediaUrl} className="grid-item" style={{objectFit: 'cover'}} /><div className="video-icon">▶</div></>
+              ) : (<img src={mediaUrl} alt="Post" className="grid-item" loading="lazy" />)}
+            </div>
+          ) : (
+            <div key={post.id} className="grid-item interactive-grid-item" style={{display:'flex', alignItems:'center', justifyContent:'center', padding:'10px', fontSize:'0.7rem', textAlign: 'center'}} onClick={() => setViewingPost(post)}>{post.text.substring(0,20)}...</div>
+          );
+        })}
+      </div>
+      {userPosts.length >= postLimit && <button className="load-more-btn" onClick={() => setPostLimit(postLimit + 15)}>Cargar fotos anteriores</button>}
+    </div>
+  );
+};
+
 const BottomNav = ({ user, isAdmin }) => {
   const location = useLocation();
   const currentPath = location.pathname;
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadCamp, setUnreadCamp] = useState(false);
+  const [usersMap, setUsersMap] = useState({});
 
   useEffect(() => {
     if (!user) return;
+    
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+      const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
+      setUsersMap(uMap);
+    });
+
     const q = query(collection(db, 'notifications'), where("recipientId", "==", user.uid));
     const unsubNotifs = onSnapshot(q, (snap) => {
       const unread = snap.docs.filter(d => d.data().read === false);
@@ -797,30 +949,22 @@ const BottomNav = ({ user, isAdmin }) => {
       if(d.exists()) setUnreadCamp(d.data().unreadCampaigns || false);
     });
 
-    return () => { unsubNotifs(); unsubUser(); };
+    return () => { unsubNotifs(); unsubUser(); unsubUsers(); };
   }, [user]);
 
   return (
     <nav className="bottom-nav">
       <Link to="/" className={`nav-item ${currentPath === '/' ? 'active' : ''}`}><span className="nav-icon">📱</span><span>Feed</span></Link>
-      
       <Link to="/campanas" className={`nav-item ${currentPath === '/campanas' ? 'active' : ''}`}>
-        <div className="nav-icon-wrapper">
-          <span className="nav-icon">🎯</span>
-          {unreadCamp && <span className="notification-badge">!</span>}
-        </div>
+        <div className="nav-icon-wrapper"><span className="nav-icon">🎯</span>{unreadCamp && <span className="notification-badge">!</span>}</div>
         <span>Campañas</span>
       </Link>
-
       <Link to="/actividad" className={`nav-item ${currentPath === '/actividad' ? 'active' : ''}`}>
-        <div className="nav-icon-wrapper">
-          <span className="nav-icon">🔔</span>
-          {unreadCount > 0 && <span className="notification-badge">{unreadCount}</span>}
-        </div>
+        <div className="nav-icon-wrapper"><span className="nav-icon">🔔</span>{unreadCount > 0 && <span className="notification-badge">{unreadCount}</span>}</div>
         <span>Actividad</span>
       </Link>
       <Link to="/ranking" className={`nav-item ${currentPath === '/ranking' ? 'active' : ''}`}><span className="nav-icon">🏆</span><span>Ranking</span></Link>
-      <Link to="/perfil" className={`nav-item ${currentPath === '/perfil' ? 'active' : ''}`}><span className="nav-icon">👤</span><span>Perfil</span></Link>
+      <Link to="/perfil" className={`nav-item ${currentPath === '/perfil' || currentPath.startsWith('/perfil/') ? 'active' : ''}`}><span className="nav-icon">👤</span><span>Perfil</span></Link>
       {isAdmin && <Link to="/admin" className={`nav-item ${currentPath === '/admin' ? 'active' : ''}`}><span className="nav-icon">👁️</span><span>Control</span></Link>}
     </nav>
   );
@@ -833,9 +977,17 @@ function App() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
+  const [usersMapGlobal, setUsersMapGlobal] = useState({});
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => { setUser(currentUser); setLoading(false); });
-    return unsubscribe;
+    
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+      const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
+      setUsersMapGlobal(uMap);
+    });
+    
+    return () => { unsubscribe(); unsubUsers(); };
   }, []);
 
   const handleLogin = async (e) => {
@@ -855,10 +1007,14 @@ function App() {
           <main className="main-content">
             <Routes>
               <Route path="/" element={<Feed user={user} isAdmin={isAdmin} />} />
-              <Route path="/campanas" element={<Campanas isAdmin={isAdmin} user={user} />} />
+              <Route path="/campanas" element={<Campanas isAdmin={isAdmin} user={user} usersMap={usersMapGlobal} />} />
               <Route path="/actividad" element={<Actividad user={user} />} />
               <Route path="/ranking" element={<Ranking />} />
+              
+              {/* ✨ NUEVAS RUTAS DE PERFILES */}
               <Route path="/perfil" element={<Perfil user={user} isAdmin={isAdmin} handleLogout={handleLogout} />} />
+              <Route path="/perfil/:uid" element={<PerfilPublico currentUser={user} isAdmin={isAdmin} />} />
+              
               {isAdmin && <Route path="/admin" element={<AdminControl />} />}
             </Routes>
           </main>

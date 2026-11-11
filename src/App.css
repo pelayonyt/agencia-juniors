@@ -1036,3 +1036,49 @@ video.grid-item {
   box-shadow: 0 2px 8px rgba(0,0,0,0.05);
   opacity: 1; /* Brillan al máximo */
 }
+
+/* --- PERFILES PÚBLICOS Y GALERÍAS INTERACTIVAS --- */
+.clickable-avatar {
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+.clickable-avatar:hover {
+  transform: scale(1.05);
+}
+
+.clickable-name {
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.clickable-name:hover {
+  color: #7952B3;
+  text-decoration: underline;
+}
+
+.back-to-gallery-btn {
+  background: #FAFAFB;
+  border: 1px solid #EAEAEA;
+  color: var(--text-main);
+  padding: 10px 15px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 20px;
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.2s;
+}
+.back-to-gallery-btn:hover {
+  background: #EAEAEA;
+}
+
+.interactive-grid-item {
+  cursor: pointer;
+  transition: filter 0.2s;
+}
+.interactive-grid-item:hover {
+  filter: brightness(0.8);
+}
