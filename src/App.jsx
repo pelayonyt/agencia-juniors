@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-// ✨ AÑADIDO getDocs PARA PODER AVISAR A TODAS LAS NIÑAS A LA VEZ
 import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where, deleteDoc, limit, getDocs } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "./firebase";
@@ -438,8 +437,10 @@ const Feed = ({ user, isAdmin }) => {
   );
 };
 
+// ✨ EL NUEVO MOTOR DE ESTADO CONGELADO DE NOTIFICACIONES
 const Actividad = ({ user }) => {
   const [notifications, setNotifications] = useState([]);
+  const [frozenUnread, setFrozenUnread] = useState(new Set()); // Memoria visual temporal
 
   useEffect(() => {
     if (!user) return;
@@ -449,10 +450,16 @@ const Actividad = ({ user }) => {
       const notifs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setNotifications(notifs);
       
-      snap.docs.forEach(docSnap => {
-        if (docSnap.data().read === false) {
-          updateDoc(doc(db, 'notifications', docSnap.id), { read: true });
-        }
+      setFrozenUnread(prev => {
+        const newSet = new Set(prev);
+        snap.docs.forEach(docSnap => {
+          if (docSnap.data().read === false) {
+            newSet.add(docSnap.id); // Guardamos la tarjeta como "rojita" visualmente
+            // Y le decimos a Firebase silenciosamente que ya la vio para quitar la burbuja
+            updateDoc(doc(db, 'notifications', docSnap.id), { read: true }).catch(()=>{});
+          }
+        });
+        return newSet;
       });
     });
     return () => unsub();
@@ -477,15 +484,20 @@ const Actividad = ({ user }) => {
       {notifications.length === 0 ? (
         <p style={{textAlign:'center', color:'var(--text-muted)'}}>Aún eres invisible. Publica algo para existir.</p>
       ) : (
-        notifications.map(n => (
-          <div key={n.id} className={`notif-card ${n.read ? '' : 'notif-unread'}`}>
-            <div className="notif-icon">{getIcon(n.type)}</div>
-            <div className="notif-text-content">
-              <div>{n.text}</div>
-              <div className="post-date">{formatDate(n.createdAt)}</div>
+        notifications.map(n => {
+          // ✨ Mantiene el color vivo si acaba de ser leída, pero no si es vieja
+          const isVisuallyUnread = n.read === false || frozenUnread.has(n.id);
+          
+          return (
+            <div key={n.id} className={`notif-card ${isVisuallyUnread ? 'notif-unread' : ''}`}>
+              <div className="notif-icon">{getIcon(n.type)}</div>
+              <div className="notif-text-content">
+                <div>{n.text}</div>
+                <div className="post-date">{formatDate(n.createdAt)}</div>
+              </div>
             </div>
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );
@@ -498,7 +510,6 @@ const Campanas = ({ isAdmin, user }) => {
   const [desc, setDesc] = useState('');
   const [reward, setReward] = useState('');
 
-  // ✨ APAGAR LA BURBUJA AL ENTRAR A CAMPAÑAS
   useEffect(() => {
     if (user && !isAdmin) {
       updateDoc(doc(db, 'users', user.uid), { unreadCampaigns: false }).catch(() => {});
@@ -524,7 +535,6 @@ const Campanas = ({ isAdmin, user }) => {
       title: title, description: desc, reward: reward || "Reputación", reactions: [], createdAt: serverTimestamp()
     });
 
-    // ✨ ENCENDER LA BURBUJA PARA TODAS LAS NIÑAS AL CREAR CAMPAÑA
     const usersSnap = await getDocs(collection(db, 'users'));
     usersSnap.forEach(u => {
       if (u.data().email && !u.data().email.includes('.admin')) {
@@ -756,14 +766,13 @@ const BottomNav = ({ user, isAdmin }) => {
   const location = useLocation();
   const currentPath = location.pathname;
   const [unreadCount, setUnreadCount] = useState(0);
-  const [unreadCamp, setUnreadCamp] = useState(false); // ✨ NUEVO RASTREADOR DE CAMPAÑAS
+  const [unreadCamp, setUnreadCamp] = useState(false);
 
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, 'notifications'), where("recipientId", "==", user.uid), where("read", "==", false));
     const unsubNotifs = onSnapshot(q, (snap) => setUnreadCount(snap.docs.length));
     
-    // ✨ ESCUCHADOR DEL INTERRUPTOR DE CAMPAÑAS
     const unsubUser = onSnapshot(doc(db, 'users', user.uid), (d) => {
       if(d.exists()) setUnreadCamp(d.data().unreadCampaigns || false);
     });
@@ -778,7 +787,6 @@ const BottomNav = ({ user, isAdmin }) => {
       <Link to="/campanas" className={`nav-item ${currentPath === '/campanas' ? 'active' : ''}`}>
         <div className="nav-icon-wrapper">
           <span className="nav-icon">🎯</span>
-          {/* ✨ BURBUJA ROJA EN CAMPAÑAS */}
           {unreadCamp && <span className="notification-badge">!</span>}
         </div>
         <span>Campañas</span>

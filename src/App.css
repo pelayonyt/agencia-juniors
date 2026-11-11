@@ -1016,8 +1016,8 @@ video.grid-item {
 
 /* --- TARJETA DE NOTIFICACIÓN BASE (Vieja/Leída) --- */
 .notif-card {
-  background: transparent; /* Fondo invisible para las viejas */
-  border: 1px solid #EAEAEA; /* Borde sutil */
+  background: #F4F4F5; /* Gris clarito para que se vean siempre */
+  border: 1px solid #EAEAEA;
   border-radius: 12px;
   padding: 15px;
   margin-bottom: 10px;
@@ -1025,15 +1025,14 @@ video.grid-item {
   gap: 15px;
   align-items: center;
   transition: all 0.3s;
-  opacity: 0.65; /* ✨ SE VEN APAGADAS PARA NO SATURAR */
+  opacity: 0.75; /* Apagadas pero perfectamente legibles */
 }
 
 /* --- TARJETA DE NOTIFICACIÓN NUEVA (No leída) --- */
 .notif-unread {
-  border-left: 4px solid #E53935;
   background: #FFF5F5;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-  opacity: 1; /* ✨ ESTAS BRILLAN AL MÁXIMO */
-  border: none;
+  border: 1px solid #FFE5E5;
   border-left: 4px solid #E53935;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  opacity: 1; /* Brillan al máximo */
 }
