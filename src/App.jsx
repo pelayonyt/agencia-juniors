@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where, deleteDoc } from "firebase/firestore";
-import { ref, uploadBytes, uploadBytesResumable, getDownloadURL } from "firebase/storage"; // ✨ CAMBIO AQUÍ
+import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where, deleteDoc, limit } from "firebase/firestore";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "./firebase";
 import './App.css';
 
@@ -17,6 +17,13 @@ const getRank = (followers) => {
   if (followers < 500) return "Aspirante";
   if (followers < 1500) return "Promesa";
   return "Élite";
+};
+
+// ✨ FUNCIÓN PARA FORMATEAR LA FECHA DE FIREBASE
+const formatDate = (timestamp) => {
+  if (!timestamp) return 'Publicando...';
+  const date = timestamp.toDate();
+  return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 };
 
 const AdminPostControls = ({ postId, likedByArray }) => {
@@ -75,6 +82,7 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
   
   const mediaUrl = post.mediaURL || post.imageURL;
   const isVideo = post.mediaType === 'video';
+  const postDate = formatDate(post.createdAt); // Extraemos la fecha formateda
 
   let likersText = '';
   if (likedByArray.length > 0) {
@@ -117,10 +125,15 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
     <div className="post-card">
       <div className="post-header">
         <img src={author.photoURL} alt="Avatar" className="post-avatar" />
-        <div style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap'}}>
-          <span className="post-author">{author.name}</span>
-          <span className="mini-rank">{getRank(author.followers || 0)}</span>
+        <div style={{display: 'flex', flexDirection: 'column', flex: 1}}>
+          <div style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap'}}>
+            <span className="post-author">{author.name}</span>
+            <span className="mini-rank">{getRank(author.followers || 0)}</span>
+          </div>
+          {/* ✨ AQUÍ SE MUESTRA LA FECHA */}
+          <span className="post-date">{postDate}</span>
         </div>
+        
         {post.campaignName && post.campaignName !== 'General' && <span className="post-tag">{post.campaignName}</span>}
         {(post.authorId === user.uid || isAdmin) && (
           <button className="delete-post-btn" onClick={() => handleDeletePost(post.id)}>🗑️</button>
@@ -130,9 +143,9 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
       {mediaUrl && (
         <div onDoubleClick={handleDoubleTap} style={{position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
           {isVideo ? (
-            <video src={mediaUrl} controls className="post-video" />
+            <video src={mediaUrl} controls preload="metadata" className="post-video" />
           ) : (
-            <img src={mediaUrl} alt="Post" className="post-image" style={{cursor: 'pointer', userSelect: 'none'}} />
+            <img src={mediaUrl} alt="Post" loading="lazy" className="post-image" style={{cursor: 'pointer', userSelect: 'none'}} />
           )}
           {showHeart && <div className="big-heart">❤️</div>}
         </div>
@@ -205,7 +218,7 @@ const Feed = ({ user, isAdmin }) => {
   const [text, setText] = useState('');
   const [mediaFile, setMediaFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0); // ✨ NUEVO: Estado del porcentaje
+  const [uploadProgress, setUploadProgress] = useState(0); 
   const fileInputRef = useRef(null);
 
   const [activeFilter, setActiveFilter] = useState('Todas');
@@ -217,16 +230,18 @@ const Feed = ({ user, isAdmin }) => {
       const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
       setUsersMap(uMap);
     });
-    const unsubPosts = onSnapshot(query(collection(db, 'posts'), orderBy('createdAt', 'desc')), (snap) => {
+    
+    // ✨ LÍMITE ESTABLECIDO EN 100 PARA EVITAR COLAPSO DE RAM
+    const unsubPosts = onSnapshot(query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
       setPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
+    
     const unsubCamps = onSnapshot(query(collection(db, 'campaigns'), orderBy('createdAt', 'desc')), (snap) => {
       setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return () => { unsubUsers(); unsubPosts(); unsubCamps(); };
   }, [user]);
 
-  // ✨ FUNCIÓN DE TEXTOS CAMBIANTES
   const getUploadText = (progress) => {
     if (progress < 25) return "Analizando contenido...";
     if (progress < 50) return "Calculando potencial de influencia...";
@@ -249,16 +264,16 @@ const Feed = ({ user, isAdmin }) => {
       
       if (isVideo) {
         const sizeInMB = mediaFile.size / (1024 * 1024);
-        if (sizeInMB > 50) {
-          alert(`¡Te has emocionada! El vídeo es demasiado largo. Este vídeo pesa ${sizeInMB.toFixed(1)}MB (El máximo es 50MB). Córtalo o bájale la calidad en tu galería antes de subirlo.`);
+        const LIMITE_MB = 50; 
+        
+        if (sizeInMB > LIMITE_MB) { 
+          alert(`¡Tu ego es demasiado grande! Este vídeo pesa ${sizeInMB.toFixed(1)}MB (El máximo es ${LIMITE_MB}MB). Córtalo o bájale la calidad en tu galería antes de subirlo.`);
           setUploading(false);
           return; 
         }
       }
 
       const fileRef = ref(storage, `posts/${Date.now()}_${mediaFile.name}`);
-      
-      // ✨ NUEVO MOTOR DE CARGA CON TRACKING EN TIEMPO REAL
       const uploadTask = uploadBytesResumable(fileRef, mediaFile);
 
       try {
@@ -280,7 +295,7 @@ const Feed = ({ user, isAdmin }) => {
           );
         });
       } catch (error) {
-        return; // Si falla, abortamos
+        return; 
       }
     }
 
@@ -322,7 +337,6 @@ const Feed = ({ user, isAdmin }) => {
       </div>
 
       <div className="create-post-card">
-        {/* ✨ CORTINA DE CARGA PSICOLÓGICA */}
         {uploading && (
           <div className="upload-overlay">
             <div className="upload-progress-text">{getUploadText(uploadProgress)}</div>
@@ -564,7 +578,8 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
       else setDoc(userRef, { name: "Nueva Influencer", photoURL: "", followers: 0, email: user.email });
     });
     
-    const q = query(collection(db, 'posts'), where("authorId", "==", user.uid), orderBy('createdAt', 'desc'));
+    // ✨ LÍMITE DE 100 TAMBIÉN EN EL PERFIL
+    const q = query(collection(db, 'posts'), where("authorId", "==", user.uid), orderBy('createdAt', 'desc'), limit(100));
     const unsubPosts = onSnapshot(q, (s) => setUserPosts(s.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     
     return () => { unsubUsers(); unsubUser(); unsubPosts(); };
@@ -575,7 +590,7 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
     if (!file) return;
     setUploadingAvatar(true);
     const fileRef = ref(storage, `avatars/${user.uid}_${Date.now()}`);
-    await uploadBytesResumable(fileRef, file); // También usa el nuevo método para fotos por si acaso
+    await uploadBytesResumable(fileRef, file);
     const url = await getDownloadURL(fileRef);
     await updateDoc(doc(db, 'users', user.uid), { photoURL: url });
     setUploadingAvatar(false);

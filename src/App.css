@@ -877,3 +877,12 @@ video.grid-item {
   font-weight: 600;
   font-family: 'Inter', sans-serif;
 }
+
+/* --- FECHA DE LA PUBLICACIÓN --- */
+.post-date {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  display: block;
+  margin-top: 2px;
+  font-weight: 500;
+}
