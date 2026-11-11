@@ -913,8 +913,7 @@ const PerfilPublico = ({ currentUser, isAdmin }) => {
 };
 
 const BottomNav = ({ user, isAdmin }) => {
-  const location = useLocation();
-  const currentPath = location.pathname;
+  const { pathname: currentPath } = useLocation();
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadCamp, setUnreadCamp] = useState(false);
 
