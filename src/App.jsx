@@ -293,7 +293,6 @@ const Feed = ({ user, isAdmin }) => {
   const [posts, setPosts] = useState([]);
   const [usersMap, setUsersMap] = useState({});
   const [campaigns, setCampaigns] = useState([]);
-  const navigate = useNavigate();
   
   const [text, setText] = useState('');
   const [mediaFile, setMediaFile] = useState(null);
@@ -522,7 +521,6 @@ const Campanas = ({ isAdmin, user, usersMap }) => {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [reward, setReward] = useState('');
-  const navigate = useNavigate();
 
   useEffect(() => {
     if (user && !isAdmin) {
