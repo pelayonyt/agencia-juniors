@@ -25,7 +25,7 @@ const formatDate = (timestamp) => {
   return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 };
 
-// ✨ COMPRESOR NATIVO DE IMÁGENES (Cero librerías externas, 0 fallos en Vercel)
+// Compresor nativo de imágenes (Cero librerías externas)
 const compressImageNative = (file) => {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -75,8 +75,10 @@ const compressImageNative = (file) => {
   });
 };
 
-const AdminPostControls = ({ postId, likedByArray, authorId }) => {
+// ✨ CONTROLES DE ADMIN EN CADA POST (Likes + Comentarios Falsos Públicos)
+const AdminPostControls = ({ postId, likedByArray, commentsArray, authorId }) => {
   const [amount, setAmount] = useState(10);
+  const [fakeComment, setFakeComment] = useState('');
   
   const addFakeLikes = async () => {
     if (amount <= 0) return;
@@ -102,13 +104,51 @@ const AdminPostControls = ({ postId, likedByArray, authorId }) => {
     bots.splice(0, amount);
     await updateDoc(doc(db, 'posts', postId), { likedBy: [...realLikes, ...bots] });
   };
+
+  const addFakeComment = async (e) => {
+    e.preventDefault();
+    if (!fakeComment.trim()) return;
+    const randomName = FAKE_NAMES[Math.floor(Math.random() * FAKE_NAMES.length)];
+    const newComment = {
+      id: Date.now().toString() + Math.random(),
+      authorId: `bot_${randomName}`,
+      authorName: randomName,
+      text: fakeComment.trim()
+    };
+    
+    const currentComments = Array.isArray(commentsArray) ? commentsArray : [];
+    await updateDoc(doc(db, 'posts', postId), { comments: [...currentComments, newComment] });
+    
+    await addDoc(collection(db, 'notifications'), {
+      recipientId: authorId,
+      text: `${randomName} ha comentado en tu post: "${fakeComment.trim()}"`,
+      type: 'comment',
+      read: false,
+      createdAt: serverTimestamp()
+    });
+
+    setFakeComment('');
+  };
   
   return (
-    <div className="admin-secret-likes">
-      <span style={{fontSize:'0.7rem', color:'var(--text-muted)', display:'flex', alignItems:'center'}}>ADMIN:</span>
-      <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="admin-number-input" />
-      <button className="admin-btn" onClick={addFakeLikes}>+ Likes</button>
-      <button className="admin-btn" onClick={removeFakeLikes}>- Likes</button>
+    <div style={{width: '100%', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px'}}>
+      <div className="admin-secret-likes" style={{marginTop: 0}}>
+        <span style={{fontSize:'0.7rem', color:'var(--text-muted)', display:'flex', alignItems:'center'}}>ADMIN:</span>
+        <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="admin-number-input" />
+        <button className="admin-btn" onClick={addFakeLikes}>+ Likes</button>
+        <button className="admin-btn" onClick={removeFakeLikes}>- Likes</button>
+      </div>
+      <form onSubmit={addFakeComment} style={{display: 'flex', gap: '6px', width: '100%'}}>
+        <input 
+          type="text" 
+          placeholder="Inyectar comentario público de bot..." 
+          value={fakeComment} 
+          onChange={e => setFakeComment(e.target.value)} 
+          className="admin-notif-input"
+          style={{flex: 1, fontSize: '0.75rem', padding: '6px 8px'}}
+        />
+        <button type="submit" className="admin-btn" disabled={!fakeComment.trim()}>💬 Publicar Bot</button>
+      </form>
     </div>
   );
 };
@@ -294,7 +334,7 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
         </div>
 
         {likersText && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '5px'}}>{likersText}</div>}
-        {isAdmin && <AdminPostControls postId={post.id} likedByArray={likedByArray} authorId={post.authorId} />}
+        {isAdmin && <AdminPostControls postId={post.id} likedByArray={likedByArray} commentsArray={commentsArray} authorId={post.authorId} />}
       </div>
 
       {showComments && (
@@ -308,12 +348,27 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
           ) : (
             <>
               {visibleComments.map(comment => {
-                const commentAuthor = usersMap[comment.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' };
+                const isBot = comment.authorId && comment.authorId.startsWith('bot_');
+                const botName = comment.authorName || (isBot ? comment.authorId.split('_')[1] : 'Alguien');
+                const commentAuthor = isBot 
+                  ? { name: botName, photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' }
+                  : (usersMap[comment.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' });
+
                 return (
                   <div key={comment.id} className="comment-item">
-                    <img src={commentAuthor.photoURL} alt="Avatar" className="comment-avatar clickable-avatar" onClick={() => navigate(`/perfil/${comment.authorId}`)} />
+                    <img 
+                      src={commentAuthor.photoURL} 
+                      alt="Avatar" 
+                      className={`comment-avatar ${!isBot ? 'clickable-avatar' : ''}`} 
+                      onClick={() => { if (!isBot) navigate(`/perfil/${comment.authorId}`); }} 
+                    />
                     <div className="comment-content">
-                      <div className="comment-author clickable-name" onClick={() => navigate(`/perfil/${comment.authorId}`)}>{commentAuthor.name}</div>
+                      <div 
+                        className={`comment-author ${!isBot ? 'clickable-name' : ''}`} 
+                        onClick={() => { if (!isBot) navigate(`/perfil/${comment.authorId}`); }}
+                      >
+                        {commentAuthor.name}
+                      </div>
                       <div className="comment-text">{comment.text}</div>
                       {(comment.authorId === user.uid || isAdmin) && (
                         <button className="delete-comment-btn" onClick={() => handleDeleteComment(comment.id)}>Borrar</button>
