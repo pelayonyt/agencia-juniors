@@ -3,7 +3,6 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate,
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where, deleteDoc, limit, getDocs } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
-import imageCompression from 'browser-image-compression';
 import { auth, db, storage } from "./firebase";
 import './App.css';
 
@@ -24,6 +23,56 @@ const formatDate = (timestamp) => {
   if (!timestamp) return 'Ahora...';
   const date = timestamp.toDate();
   return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+};
+
+// ✨ COMPRESOR NATIVO DE IMÁGENES (Cero librerías externas, 0 fallos en Vercel)
+const compressImageNative = (file) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1440;
+        const MAX_HEIGHT = 1440;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), {
+              type: 'image/jpeg',
+              lastModified: Date.now(),
+            });
+            resolve(compressedFile);
+          } else {
+            resolve(file);
+          }
+        }, 'image/jpeg', 0.8);
+      };
+      img.onerror = () => resolve(file);
+    };
+    reader.onerror = () => resolve(file);
+  });
 };
 
 const AdminPostControls = ({ postId, likedByArray, authorId }) => {
@@ -343,9 +392,11 @@ const Feed = ({ user, isAdmin }) => {
           setUploading(false); return; 
         }
       } else {
-        const options = { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true };
-        try { fileToUpload = await imageCompression(mediaFile, options); } 
-        catch (error) { console.log("No se pudo comprimir la imagen."); }
+        try {
+          fileToUpload = await compressImageNative(mediaFile);
+        } catch (err) {
+          console.error(err);
+        }
       }
 
       const fileRef = ref(storage, `posts/${Date.now()}_${fileToUpload.name}`);
@@ -359,7 +410,10 @@ const Feed = ({ user, isAdmin }) => {
             async () => { mediaURL = await getDownloadURL(uploadTask.snapshot.ref); resolve(); }
           );
         });
-      } catch (error) { return; }
+      } catch (err) {
+        console.error(err);
+        return;
+      }
     }
 
     await addDoc(collection(db, 'posts'), {
@@ -691,8 +745,12 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
     });
     const userRef = doc(db, 'users', user.uid);
     const unsubUser = onSnapshot(userRef, (d) => {
-      if (d.exists()) { setProfileData(d.data()); if (!newName) setNewName(d.data().name || ''); } 
-      else setDoc(userRef, { name: "Nueva Influencer", photoURL: "", followers: 0, email: user.email });
+      if (d.exists()) { 
+        setProfileData(d.data()); 
+        setNewName((prev) => prev || d.data().name || ''); 
+      } else {
+        setDoc(userRef, { name: "Nueva Influencer", photoURL: "", followers: 0, email: user.email });
+      }
     });
     
     const q = query(collection(db, 'posts'), where("authorId", "==", user.uid));
@@ -709,8 +767,14 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
     const file = e.target.files[0];
     if (!file) return;
     setUploadingAvatar(true);
+    let fileToUpload = file;
+    try {
+      fileToUpload = await compressImageNative(file);
+    } catch (err) {
+      console.error(err);
+    }
     const fileRef = ref(storage, `avatars/${user.uid}_${Date.now()}`);
-    await uploadBytesResumable(fileRef, file);
+    await uploadBytesResumable(fileRef, fileToUpload);
     const url = await getDownloadURL(fileRef);
     await updateDoc(doc(db, 'users', user.uid), { photoURL: url });
     setUploadingAvatar(false);
@@ -974,7 +1038,7 @@ function App() {
   const handleLogin = async (e) => {
     e.preventDefault(); setError(''); 
     try { await signInWithEmailAndPassword(auth, email, password); } 
-    catch (error) { setError("Credenciales incorrectas."); }
+    catch (err) { console.error(err); setError("Credenciales incorrectas."); }
   };
   const handleLogout = () => signOut(auth);
 
