@@ -886,3 +886,24 @@ video.grid-item {
   margin-top: 2px;
   font-weight: 500;
 }
+
+/* --- BOTÓN DE CARGAR MÁS POSTS --- */
+.load-more-btn {
+  background: transparent;
+  border: 1px solid #EAEAEA;
+  color: var(--text-muted);
+  padding: 12px 25px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: block;
+  margin: 30px auto;
+  transition: all 0.2s;
+}
+
+.load-more-btn:hover {
+  background: #FAFAFB;
+  color: var(--text-main);
+  border-color: #D1D1D1;
+}

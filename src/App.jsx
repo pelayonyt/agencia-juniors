@@ -19,7 +19,6 @@ const getRank = (followers) => {
   return "Élite";
 };
 
-// ✨ FUNCIÓN PARA FORMATEAR LA FECHA DE FIREBASE
 const formatDate = (timestamp) => {
   if (!timestamp) return 'Publicando...';
   const date = timestamp.toDate();
@@ -82,7 +81,7 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
   
   const mediaUrl = post.mediaURL || post.imageURL;
   const isVideo = post.mediaType === 'video';
-  const postDate = formatDate(post.createdAt); // Extraemos la fecha formateda
+  const postDate = formatDate(post.createdAt);
 
   let likersText = '';
   if (likedByArray.length > 0) {
@@ -130,7 +129,6 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
             <span className="post-author">{author.name}</span>
             <span className="mini-rank">{getRank(author.followers || 0)}</span>
           </div>
-          {/* ✨ AQUÍ SE MUESTRA LA FECHA */}
           <span className="post-date">{postDate}</span>
         </div>
         
@@ -223,6 +221,9 @@ const Feed = ({ user, isAdmin }) => {
 
   const [activeFilter, setActiveFilter] = useState('Todas');
   const [selectedCampaignForUpload, setSelectedCampaignForUpload] = useState('General');
+  
+  // ✨ ESTADO PARA LA PAGINACIÓN DINÁMICA (Empezamos mostrando 15)
+  const [postLimit, setPostLimit] = useState(15);
 
   useEffect(() => {
     if (!user) return;
@@ -231,8 +232,8 @@ const Feed = ({ user, isAdmin }) => {
       setUsersMap(uMap);
     });
     
-    // ✨ LÍMITE ESTABLECIDO EN 100 PARA EVITAR COLAPSO DE RAM
-    const unsubPosts = onSnapshot(query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+    // ✨ LA CONSULTA AHORA USA EL LÍMITE DINÁMICO
+    const unsubPosts = onSnapshot(query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(postLimit)), (snap) => {
       setPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     
@@ -240,7 +241,7 @@ const Feed = ({ user, isAdmin }) => {
       setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return () => { unsubUsers(); unsubPosts(); unsubCamps(); };
-  }, [user]);
+  }, [user, postLimit]); // ✨ Si el límite cambia, se actualiza la descarga
 
   const getUploadText = (progress) => {
     if (progress < 25) return "Analizando contenido...";
@@ -264,7 +265,7 @@ const Feed = ({ user, isAdmin }) => {
       
       if (isVideo) {
         const sizeInMB = mediaFile.size / (1024 * 1024);
-        const LIMITE_MB = 50; 
+        const LIMITE_MB = 50; // PORTERO A 50MB
         
         if (sizeInMB > LIMITE_MB) { 
           alert(`¡Tu ego es demasiado grande! Este vídeo pesa ${sizeInMB.toFixed(1)}MB (El máximo es ${LIMITE_MB}MB). Córtalo o bájale la calidad en tu galería antes de subirlo.`);
@@ -375,9 +376,18 @@ const Feed = ({ user, isAdmin }) => {
       {displayedPosts.length === 0 ? (
         <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>No hay publicaciones con esta etiqueta.</p>
       ) : (
-        displayedPosts.map(post => (
-          <PostItem key={post.id} post={post} user={user} usersMap={usersMap} isAdmin={isAdmin} toggleLike={toggleLike} handleDeletePost={handleDeletePost} />
-        ))
+        <>
+          {displayedPosts.map(post => (
+            <PostItem key={post.id} post={post} user={user} usersMap={usersMap} isAdmin={isAdmin} toggleLike={toggleLike} handleDeletePost={handleDeletePost} />
+          ))}
+          
+          {/* ✨ BOTÓN DE CARGAR MÁS POSTS (Añade 15 al límite actual) */}
+          {posts.length >= postLimit && (
+            <button className="load-more-btn" onClick={() => setPostLimit(postLimit + 15)}>
+              Cargar publicaciones anteriores
+            </button>
+          )}
+        </>
       )}
     </div>
   );
@@ -564,6 +574,9 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const fileInputRef = useRef(null);
 
+  // ✨ PAGINACIÓN DINÁMICA TAMBIÉN EN EL PERFIL (Empieza en 15)
+  const [postLimit, setPostLimit] = useState(15);
+
   useEffect(() => {
     if (!user) return;
     
@@ -578,12 +591,12 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
       else setDoc(userRef, { name: "Nueva Influencer", photoURL: "", followers: 0, email: user.email });
     });
     
-    // ✨ LÍMITE DE 100 TAMBIÉN EN EL PERFIL
-    const q = query(collection(db, 'posts'), where("authorId", "==", user.uid), orderBy('createdAt', 'desc'), limit(100));
+    // ✨ AHORA USA EL LÍMITE DINÁMICO
+    const q = query(collection(db, 'posts'), where("authorId", "==", user.uid), orderBy('createdAt', 'desc'), limit(postLimit));
     const unsubPosts = onSnapshot(q, (s) => setUserPosts(s.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     
     return () => { unsubUsers(); unsubUser(); unsubPosts(); };
-  }, [user]);
+  }, [user, postLimit]); // ✨ Se actualiza al pedir más posts
 
   const handlePhotoChange = async (e) => {
     const file = e.target.files[0];
@@ -664,6 +677,13 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
           );
         })}
       </div>
+
+      {/* ✨ BOTÓN CARGAR MÁS EN EL PERFIL */}
+      {userPosts.length >= postLimit && (
+        <button className="load-more-btn" onClick={() => setPostLimit(postLimit + 15)}>
+          Cargar fotos anteriores
+        </button>
+      )}
 
       <button onClick={handleLogout} className="login-btn" style={{width: '100%', background: '#EAEAEA', color: 'var(--text-main)', boxShadow: 'none', marginTop: '30px'}}>
         Cerrar Sesión
