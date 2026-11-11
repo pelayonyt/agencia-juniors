@@ -329,7 +329,7 @@ const Feed = ({ user, isAdmin }) => {
       
       if (isVideo) {
         const sizeInMB = mediaFile.size / (1024 * 1024);
-        const LIMITE_MB = 75; 
+        const LIMITE_MB = 100; 
         if (sizeInMB > LIMITE_MB) { 
           alert(`Este vídeo pesa ${sizeInMB.toFixed(1)}MB (El máximo es ${LIMITE_MB}MB).`);
           setUploading(false); return; 
