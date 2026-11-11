@@ -249,8 +249,8 @@ const Feed = ({ user, isAdmin }) => {
       
       if (isVideo) {
         const sizeInMB = mediaFile.size / (1024 * 1024);
-        if (sizeInMB > 25) {
-          alert(`¡Tu ego es demasiado grande! Este vídeo pesa ${sizeInMB.toFixed(1)}MB (El máximo es 25MB). Córtalo o bájale la calidad en tu galería antes de subirlo.`);
+        if (sizeInMB > 50) {
+          alert(`¡Te has emocionada! El vídeo es demasiado largo. Este vídeo pesa ${sizeInMB.toFixed(1)}MB (El máximo es 50MB). Córtalo o bájale la calidad en tu galería antes de subirlo.`);
           setUploading(false);
           return; 
         }
