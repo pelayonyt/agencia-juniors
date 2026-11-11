@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-// ✨ AÑADIMOS useNavigate y useParams PARA NAVEGAR ENTRE PERFILES
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where, deleteDoc, limit, getDocs } from "firebase/firestore";
@@ -68,7 +67,7 @@ const AdminPostControls = ({ postId, likedByArray, authorId }) => {
 const AdminUserControls = ({ uid, currentFollowers }) => {
   const [amount, setAmount] = useState(50);
   const [customMsg, setCustomMsg] = useState('');
-  const navigate = useNavigate(); // Herramienta para saltar al perfil
+  const navigate = useNavigate();
 
   const updateFollowers = async (isAdding) => {
     const val = isAdding ? amount : -amount;
@@ -126,7 +125,6 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
           <input type="text" placeholder="Ej: Qué foto tan rara..." value={customMsg} onChange={e => setCustomMsg(e.target.value)} className="admin-notif-input" />
           <button className="admin-btn" onClick={sendPsychologicalMessage}>💬 Enviar</button>
         </div>
-        {/* ✨ BOTÓN VER MURO DESDE PANEL DIOS */}
         <button className="admin-btn" style={{width: '100%', background: '#F4F4F5', color: '#333'}} onClick={() => navigate(`/perfil/${uid}`)}>
           👁️ Ver Muro Público
         </button>
@@ -140,7 +138,7 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [expandedComments, setExpandedComments] = useState(false); 
-  const navigate = useNavigate(); // Para pinchar en la foto de perfil
+  const navigate = useNavigate(); 
   
   const author = usersMap[post.authorId] || { name: 'Cargando...', photoURL: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png', followers: 0 };
   const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
@@ -203,7 +201,6 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
   return (
     <div className="post-card">
       <div className="post-header">
-        {/* ✨ FOTO Y NOMBRE CLICKABLES */}
         <img src={author.photoURL} alt="Avatar" className="post-avatar clickable-avatar" onClick={() => navigate(`/perfil/${post.authorId}`)} />
         <div style={{display: 'flex', flexDirection: 'column', flex: 1}}>
           <div style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap'}}>
@@ -675,7 +672,6 @@ const AdminControl = () => {
   );
 };
 
-// ✨ TU PROPIO PERFIL CON GALERÍA INTERACTIVA
 const Perfil = ({ user, isAdmin, handleLogout }) => {
   const [profileData, setProfileData] = useState({ name: '', photoURL: '', followers: 0 });
   const [userPosts, setUserPosts] = useState([]);
@@ -685,7 +681,7 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const fileInputRef = useRef(null);
   const [postLimit, setPostLimit] = useState(15);
-  const [viewingPost, setViewingPost] = useState(null); // ✨ Creado el visor de fotos grandes
+  const [viewingPost, setViewingPost] = useState(null); 
 
   useEffect(() => {
     if (!user) return;
@@ -746,13 +742,11 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
   const handleDeletePost = async (postId) => {
     if (window.confirm("¿Seguro que quieres eliminar esta publicación?")) {
       await deleteDoc(doc(db, 'posts', postId));
-      setViewingPost(null); // Vuelve a la galería al borrar
+      setViewingPost(null); 
     }
   };
 
-  // Si han hecho click en una foto, mostramos el post en grande
   if (viewingPost) {
-    // Buscamos la versión más actualizada del post
     const currentPost = userPosts.find(p => p.id === viewingPost.id) || viewingPost;
     return (
       <div style={{width: '100%'}}>
@@ -814,9 +808,8 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
   );
 };
 
-// ✨ EL NUEVO PERFIL PÚBLICO (Para ver y cotillear a otras chicas)
 const PerfilPublico = ({ currentUser, isAdmin }) => {
-  const { uid } = useParams(); // Saca la ID de la url
+  const { uid } = useParams();
   const navigate = useNavigate();
   const [profileData, setProfileData] = useState(null);
   const [userPosts, setUserPosts] = useState([]);
@@ -825,7 +818,6 @@ const PerfilPublico = ({ currentUser, isAdmin }) => {
   const [viewingPost, setViewingPost] = useState(null);
 
   useEffect(() => {
-    // Si pincha en su propio perfil, la mandamos a la pestaña Perfil normal
     if (uid === currentUser.uid) {
       navigate('/perfil', { replace: true });
       return;
@@ -874,7 +866,6 @@ const PerfilPublico = ({ currentUser, isAdmin }) => {
 
   if (!profileData) return <div style={{textAlign: 'center', marginTop: '50px'}}>Cargando perfil...</div>;
 
-  // Vista de Publicación en Grande
   if (viewingPost) {
     const currentPost = userPosts.find(p => p.id === viewingPost.id) || viewingPost;
     return (
@@ -887,7 +878,6 @@ const PerfilPublico = ({ currentUser, isAdmin }) => {
     );
   }
 
-  // Vista de Cuadrícula Pública
   return (
     <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center'}}>
       <div className="profile-header" style={{marginTop: '20px'}}>
@@ -927,15 +917,9 @@ const BottomNav = ({ user, isAdmin }) => {
   const currentPath = location.pathname;
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadCamp, setUnreadCamp] = useState(false);
-  const [usersMap, setUsersMap] = useState({});
 
   useEffect(() => {
     if (!user) return;
-    
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-      const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
-      setUsersMap(uMap);
-    });
 
     const q = query(collection(db, 'notifications'), where("recipientId", "==", user.uid));
     const unsubNotifs = onSnapshot(q, (snap) => {
@@ -947,7 +931,7 @@ const BottomNav = ({ user, isAdmin }) => {
       if(d.exists()) setUnreadCamp(d.data().unreadCampaigns || false);
     });
 
-    return () => { unsubNotifs(); unsubUser(); unsubUsers(); };
+    return () => { unsubNotifs(); unsubUser(); };
   }, [user]);
 
   return (
@@ -1009,7 +993,6 @@ function App() {
               <Route path="/actividad" element={<Actividad user={user} />} />
               <Route path="/ranking" element={<Ranking />} />
               
-              {/* ✨ NUEVAS RUTAS DE PERFILES */}
               <Route path="/perfil" element={<Perfil user={user} isAdmin={isAdmin} handleLogout={handleLogout} />} />
               <Route path="/perfil/:uid" element={<PerfilPublico currentUser={user} isAdmin={isAdmin} />} />
               
