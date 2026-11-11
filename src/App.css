@@ -977,3 +977,39 @@ video.grid-item {
   border-radius: 4px;
   font-family: 'Inter', sans-serif;
 }
+
+/* --- REDISEÑO DEL PANEL DIOS --- */
+.admin-user-card {
+  background: white;
+  border-radius: 12px;
+  padding: 15px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  border: 1px solid #EAEAEA;
+}
+
+.admin-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  border-bottom: 1px solid #EAEAEA;
+  padding-bottom: 10px;
+}
+
+.admin-control-group {
+  margin-bottom: 15px;
+  background: #FAFAFB;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.admin-control-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  display: block;
+  font-weight: 600;
+}

@@ -25,7 +25,6 @@ const formatDate = (timestamp) => {
   return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 };
 
-// ✨ ADMIN: CONTROLES DE LIKES (Ahora envían notificación)
 const AdminPostControls = ({ postId, likedByArray, authorId }) => {
   const [amount, setAmount] = useState(10);
   
@@ -37,7 +36,6 @@ const AdminPostControls = ({ postId, likedByArray, authorId }) => {
     });
     await updateDoc(doc(db, 'posts', postId), { likedBy: [...likedByArray, ...bots] });
     
-    // 🚨 Notificación de Like
     await addDoc(collection(db, 'notifications'), {
       recipientId: authorId,
       text: `A ${amount} personas más les ha gustado tu publicación.`,
@@ -65,7 +63,7 @@ const AdminPostControls = ({ postId, likedByArray, authorId }) => {
   );
 };
 
-// ✨ ADMIN: CONTROLES DE USUARIO (Ahora inyectan mensajes psicológicos)
+// ✨ PANEL DIOS: Controles de usuario mejorados
 const AdminUserControls = ({ uid, currentFollowers }) => {
   const [amount, setAmount] = useState(50);
   const [customMsg, setCustomMsg] = useState('');
@@ -75,7 +73,7 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
     const newTotal = Math.max(0, (currentFollowers || 0) + val);
     await updateDoc(doc(db, 'users', uid), { followers: newTotal });
     
-    // 🚨 Notificación de Seguidores
+    // 🚨 Notificación dinámica de suma o pérdida de seguidores
     if (isAdding) {
       await addDoc(collection(db, 'notifications'), {
         recipientId: uid,
@@ -84,32 +82,50 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
         read: false,
         createdAt: serverTimestamp()
       });
+    } else {
+      await addDoc(collection(db, 'notifications'), {
+        recipientId: uid,
+        text: `Tu relevancia ha caído. Has perdido ${amount} seguidores.`,
+        type: 'follower_loss', // Nuevo tipo para la bajada
+        read: false,
+        createdAt: serverTimestamp()
+      });
     }
   };
 
   const sendPsychologicalMessage = async () => {
     if (!customMsg.trim()) return;
+    // ✨ Generamos un nombre falso y simulamos que es un comentario real
+    const randomName = FAKE_NAMES[Math.floor(Math.random() * FAKE_NAMES.length)];
+    
     await addDoc(collection(db, 'notifications'), {
       recipientId: uid,
-      text: customMsg,
-      type: 'system',
+      text: `${randomName} ha comentado: "${customMsg}"`,
+      type: 'comment', // Usamos tipo comentario para que salga el bocadillo 💬
       read: false,
       createdAt: serverTimestamp()
     });
     setCustomMsg('');
-    alert("Mensaje inyectado en el móvil de la usuaria.");
+    alert(`Se ha inyectado el mensaje bajo el nombre de ${randomName}.`);
   };
 
   return (
-    <div className="admin-controls" style={{flexDirection: 'column', alignItems: 'flex-start', width: '100%'}}>
-      <div style={{display: 'flex', alignItems: 'center', gap: '5px'}}>
-        <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="admin-number-input" style={{width: '60px', margin:0}} />
-        <button className="admin-btn" onClick={() => updateFollowers(false)}>- Seg</button>
-        <button className="admin-btn" onClick={() => updateFollowers(true)}>+ Seg</button>
+    <div className="admin-controls-wrapper" style={{width: '100%'}}>
+      <div className="admin-control-group">
+        <span className="admin-control-label">Gestión de Seguidores</span>
+        <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
+          <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="admin-number-input" style={{width: '80px', margin:0}} />
+          <button className="admin-btn" onClick={() => updateFollowers(false)}>- Quitar</button>
+          <button className="admin-btn" onClick={() => updateFollowers(true)}>+ Añadir</button>
+        </div>
       </div>
-      <div className="admin-notif-row">
-        <input type="text" placeholder="Inyectar sugerencia..." value={customMsg} onChange={e => setCustomMsg(e.target.value)} className="admin-notif-input" />
-        <button className="admin-btn" onClick={sendPsychologicalMessage}>👁️ Enviar</button>
+      
+      <div className="admin-control-group" style={{marginBottom: 0}}>
+        <span className="admin-control-label">Inyectar Comentario Falso</span>
+        <div style={{display: 'flex', gap: '8px', width: '100%'}}>
+          <input type="text" placeholder="Ej: Qué foto tan rara..." value={customMsg} onChange={e => setCustomMsg(e.target.value)} className="admin-notif-input" />
+          <button className="admin-btn" onClick={sendPsychologicalMessage}>💬 Enviar</button>
+        </div>
       </div>
     </div>
   );
@@ -154,13 +170,12 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
     const newComment = { id: Date.now().toString() + Math.random(), authorId: user.uid, text: commentText.trim() };
     await updateDoc(doc(db, 'posts', post.id), { comments: [...commentsArray, newComment] });
     
-    // 🚨 Notificación de Comentario
     if (post.authorId !== user.uid) {
       const myName = usersMap[user.uid]?.name || "Alguien";
       await addDoc(collection(db, 'notifications'), {
         recipientId: post.authorId,
         text: `${myName} ha comentado: "${commentText.trim()}"`,
-        type: 'like',
+        type: 'comment',
         read: false,
         createdAt: serverTimestamp()
       });
@@ -345,14 +360,12 @@ const Feed = ({ user, isAdmin }) => {
     setText(''); setMediaFile(null); setSelectedCampaignForUpload('General'); setUploading(false); setUploadProgress(0);
   };
 
-  // ✨ MOTOR DE LIKES (Ahora envía notificaciones entre jugadoras)
   const toggleLike = async (postId, currentLikedBy, authorId) => {
     const postRef = doc(db, 'posts', postId);
     if (currentLikedBy.includes(user.uid)) {
       await updateDoc(postRef, { likedBy: currentLikedBy.filter(uid => uid !== user.uid) });
     } else {
       await updateDoc(postRef, { likedBy: [...currentLikedBy, user.uid] });
-      // 🚨 Notificación de Like real (si no es a ti mismo)
       if (authorId !== user.uid) {
         const myName = usersMap[user.uid]?.name || "Alguien";
         await addDoc(collection(db, 'notifications'), {
@@ -427,7 +440,6 @@ const Feed = ({ user, isAdmin }) => {
   );
 };
 
-// ✨ PANTALLA NUEVA: ACTIVIDAD (CENTRO DE NOTIFICACIONES)
 const Actividad = ({ user }) => {
   const [notifications, setNotifications] = useState([]);
 
@@ -439,7 +451,6 @@ const Actividad = ({ user }) => {
       const notifs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setNotifications(notifs);
       
-      // Al abrir la pantalla, quema la dopamina y marca todas como leídas en la nube
       snap.docs.forEach(docSnap => {
         if (docSnap.data().read === false) {
           updateDoc(doc(db, 'notifications', docSnap.id), { read: true });
@@ -449,9 +460,12 @@ const Actividad = ({ user }) => {
     return () => unsub();
   }, [user]);
 
+  // ✨ SE ASIGNAN LOS ICONOS CORRECTOS A CADA ACCIÓN
   const getIcon = (type) => {
     if (type === 'like') return '❤️';
-    if (type === 'follower') return '👤';
+    if (type === 'follower') return '📈';
+    if (type === 'follower_loss') return '📉'; // Icono de bajada
+    if (type === 'comment') return '💬'; // El inyector de mensajes ahora usa este
     if (type === 'system') return '👁️';
     return '🔔';
   };
@@ -594,6 +608,7 @@ const Ranking = () => {
   );
 };
 
+// ✨ ESTRUCTURA ACTUALIZADA DEL PANEL DIOS (Usando Tarjetas)
 const AdminControl = () => {
   const [usersList, setUsersList] = useState([]);
   useEffect(() => {
@@ -613,17 +628,17 @@ const AdminControl = () => {
     <div>
       <h1 className="page-title" style={{color: '#4A3265'}}>Panel Dios</h1>
       {usersList.map(u => (
-        <div key={u.id} className="admin-user-row" style={{alignItems: 'flex-start'}}>
-          <div style={{flex: 1, marginTop: '5px'}}>
-            <div style={{fontWeight: 'bold', fontSize: '0.9rem'}}>{u.name || u.email.split('@')[0]}</div>
-            <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{u.followers || 0} Seg.</div>
-          </div>
-          <div style={{display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '65%'}}>
-            <div style={{display: 'flex', width: '100%', justifyContent: 'flex-end'}}>
-              <button className="delete-post-btn" onClick={() => handleDeleteUser(u.id, u.name)} style={{marginLeft: '10px', marginTop: 0}}>🗑️</button>
+        <div key={u.id} className="admin-user-card">
+          
+          <div className="admin-card-header">
+            <div>
+              <div style={{fontWeight: 'bold', fontSize: '1.05rem'}}>{u.name || u.email.split('@')[0]}</div>
+              <div style={{fontSize: '0.85rem', color: 'var(--text-main)', marginTop: '2px'}}>{u.followers || 0} Seguidores</div>
             </div>
-            <AdminUserControls uid={u.id} currentFollowers={u.followers} />
+            <button className="delete-post-btn" onClick={() => handleDeleteUser(u.id, u.name)} style={{margin: 0}}>🗑️ Borrar</button>
           </div>
+
+          <AdminUserControls uid={u.id} currentFollowers={u.followers} />
         </div>
       ))}
     </div>
@@ -724,7 +739,6 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
   );
 };
 
-// ✨ MENÚ INFERIOR (Ahora escucha el Globito Rojo)
 const BottomNav = ({ user, isAdmin }) => {
   const location = useLocation();
   const currentPath = location.pathname;
