@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where, deleteDoc, limit } from "firebase/firestore";
+// ✨ AÑADIDO getDocs PARA PODER AVISAR A TODAS LAS NIÑAS A LA VEZ
+import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where, deleteDoc, limit, getDocs } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { auth, db, storage } from "./firebase";
 import './App.css';
@@ -63,7 +64,6 @@ const AdminPostControls = ({ postId, likedByArray, authorId }) => {
   );
 };
 
-// ✨ PANEL DIOS: Controles de usuario mejorados
 const AdminUserControls = ({ uid, currentFollowers }) => {
   const [amount, setAmount] = useState(50);
   const [customMsg, setCustomMsg] = useState('');
@@ -73,7 +73,6 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
     const newTotal = Math.max(0, (currentFollowers || 0) + val);
     await updateDoc(doc(db, 'users', uid), { followers: newTotal });
     
-    // 🚨 Notificación dinámica de suma o pérdida de seguidores
     if (isAdding) {
       await addDoc(collection(db, 'notifications'), {
         recipientId: uid,
@@ -86,7 +85,7 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
       await addDoc(collection(db, 'notifications'), {
         recipientId: uid,
         text: `Tu relevancia ha caído. Has perdido ${amount} seguidores.`,
-        type: 'follower_loss', // Nuevo tipo para la bajada
+        type: 'follower_loss', 
         read: false,
         createdAt: serverTimestamp()
       });
@@ -95,13 +94,12 @@ const AdminUserControls = ({ uid, currentFollowers }) => {
 
   const sendPsychologicalMessage = async () => {
     if (!customMsg.trim()) return;
-    // ✨ Generamos un nombre falso y simulamos que es un comentario real
     const randomName = FAKE_NAMES[Math.floor(Math.random() * FAKE_NAMES.length)];
     
     await addDoc(collection(db, 'notifications'), {
       recipientId: uid,
       text: `${randomName} ha comentado: "${customMsg}"`,
-      type: 'comment', // Usamos tipo comentario para que salga el bocadillo 💬
+      type: 'comment', 
       read: false,
       createdAt: serverTimestamp()
     });
@@ -460,12 +458,11 @@ const Actividad = ({ user }) => {
     return () => unsub();
   }, [user]);
 
-  // ✨ SE ASIGNAN LOS ICONOS CORRECTOS A CADA ACCIÓN
   const getIcon = (type) => {
     if (type === 'like') return '❤️';
     if (type === 'follower') return '📈';
-    if (type === 'follower_loss') return '📉'; // Icono de bajada
-    if (type === 'comment') return '💬'; // El inyector de mensajes ahora usa este
+    if (type === 'follower_loss') return '📉'; 
+    if (type === 'comment') return '💬'; 
     if (type === 'system') return '👁️';
     return '🔔';
   };
@@ -501,6 +498,13 @@ const Campanas = ({ isAdmin, user }) => {
   const [desc, setDesc] = useState('');
   const [reward, setReward] = useState('');
 
+  // ✨ APAGAR LA BURBUJA AL ENTRAR A CAMPAÑAS
+  useEffect(() => {
+    if (user && !isAdmin) {
+      updateDoc(doc(db, 'users', user.uid), { unreadCampaigns: false }).catch(() => {});
+    }
+  }, [user, isAdmin]);
+
   useEffect(() => {
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
@@ -515,9 +519,19 @@ const Campanas = ({ isAdmin, user }) => {
   const handleCreateCampaign = async (e) => {
     e.preventDefault();
     if (!title || !desc) return;
+    
     await addDoc(collection(db, 'campaigns'), {
       title: title, description: desc, reward: reward || "Reputación", reactions: [], createdAt: serverTimestamp()
     });
+
+    // ✨ ENCENDER LA BURBUJA PARA TODAS LAS NIÑAS AL CREAR CAMPAÑA
+    const usersSnap = await getDocs(collection(db, 'users'));
+    usersSnap.forEach(u => {
+      if (u.data().email && !u.data().email.includes('.admin')) {
+        updateDoc(doc(db, 'users', u.id), { unreadCampaigns: true });
+      }
+    });
+
     setTitle(''); setDesc(''); setReward('');
   };
 
@@ -608,7 +622,6 @@ const Ranking = () => {
   );
 };
 
-// ✨ ESTRUCTURA ACTUALIZADA DEL PANEL DIOS (Usando Tarjetas)
 const AdminControl = () => {
   const [usersList, setUsersList] = useState([]);
   useEffect(() => {
@@ -743,18 +756,34 @@ const BottomNav = ({ user, isAdmin }) => {
   const location = useLocation();
   const currentPath = location.pathname;
   const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadCamp, setUnreadCamp] = useState(false); // ✨ NUEVO RASTREADOR DE CAMPAÑAS
 
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, 'notifications'), where("recipientId", "==", user.uid), where("read", "==", false));
-    const unsub = onSnapshot(q, (snap) => setUnreadCount(snap.docs.length));
-    return () => unsub();
+    const unsubNotifs = onSnapshot(q, (snap) => setUnreadCount(snap.docs.length));
+    
+    // ✨ ESCUCHADOR DEL INTERRUPTOR DE CAMPAÑAS
+    const unsubUser = onSnapshot(doc(db, 'users', user.uid), (d) => {
+      if(d.exists()) setUnreadCamp(d.data().unreadCampaigns || false);
+    });
+
+    return () => { unsubNotifs(); unsubUser(); };
   }, [user]);
 
   return (
     <nav className="bottom-nav">
       <Link to="/" className={`nav-item ${currentPath === '/' ? 'active' : ''}`}><span className="nav-icon">📱</span><span>Feed</span></Link>
-      <Link to="/campanas" className={`nav-item ${currentPath === '/campanas' ? 'active' : ''}`}><span className="nav-icon">🎯</span><span>Campañas</span></Link>
+      
+      <Link to="/campanas" className={`nav-item ${currentPath === '/campanas' ? 'active' : ''}`}>
+        <div className="nav-icon-wrapper">
+          <span className="nav-icon">🎯</span>
+          {/* ✨ BURBUJA ROJA EN CAMPAÑAS */}
+          {unreadCamp && <span className="notification-badge">!</span>}
+        </div>
+        <span>Campañas</span>
+      </Link>
+
       <Link to="/actividad" className={`nav-item ${currentPath === '/actividad' ? 'active' : ''}`}>
         <div className="nav-icon-wrapper">
           <span className="nav-icon">🔔</span>
