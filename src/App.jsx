@@ -20,13 +20,15 @@ const getRank = (followers) => {
 };
 
 const formatDate = (timestamp) => {
-  if (!timestamp) return 'Publicando...';
+  if (!timestamp) return 'Ahora...';
   const date = timestamp.toDate();
   return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 };
 
-const AdminPostControls = ({ postId, likedByArray }) => {
+// ✨ ADMIN: CONTROLES DE LIKES (Ahora envían notificación)
+const AdminPostControls = ({ postId, likedByArray, authorId }) => {
   const [amount, setAmount] = useState(10);
+  
   const addFakeLikes = async () => {
     if (amount <= 0) return;
     const bots = Array.from({length: amount}, () => {
@@ -34,7 +36,17 @@ const AdminPostControls = ({ postId, likedByArray }) => {
       return `bot_${randomName}_${Math.random().toString(36).substring(2, 9)}`;
     });
     await updateDoc(doc(db, 'posts', postId), { likedBy: [...likedByArray, ...bots] });
+    
+    // 🚨 Notificación de Like
+    await addDoc(collection(db, 'notifications'), {
+      recipientId: authorId,
+      text: `A ${amount} personas más les ha gustado tu publicación.`,
+      type: 'like',
+      read: false,
+      createdAt: serverTimestamp()
+    });
   };
+  
   const removeFakeLikes = async () => {
     if (amount <= 0) return;
     const realLikes = likedByArray.filter(uid => !uid.startsWith('bot_'));
@@ -42,6 +54,7 @@ const AdminPostControls = ({ postId, likedByArray }) => {
     bots.splice(0, amount);
     await updateDoc(doc(db, 'posts', postId), { likedBy: [...realLikes, ...bots] });
   };
+  
   return (
     <div className="admin-secret-likes">
       <span style={{fontSize:'0.7rem', color:'var(--text-muted)', display:'flex', alignItems:'center'}}>ADMIN:</span>
@@ -52,18 +65,52 @@ const AdminPostControls = ({ postId, likedByArray }) => {
   );
 };
 
+// ✨ ADMIN: CONTROLES DE USUARIO (Ahora inyectan mensajes psicológicos)
 const AdminUserControls = ({ uid, currentFollowers }) => {
   const [amount, setAmount] = useState(50);
+  const [customMsg, setCustomMsg] = useState('');
+
   const updateFollowers = async (isAdding) => {
     const val = isAdding ? amount : -amount;
     const newTotal = Math.max(0, (currentFollowers || 0) + val);
     await updateDoc(doc(db, 'users', uid), { followers: newTotal });
+    
+    // 🚨 Notificación de Seguidores
+    if (isAdding) {
+      await addDoc(collection(db, 'notifications'), {
+        recipientId: uid,
+        text: `¡Estás en tendencia! Has ganado ${amount} seguidores nuevos.`,
+        type: 'follower',
+        read: false,
+        createdAt: serverTimestamp()
+      });
+    }
   };
+
+  const sendPsychologicalMessage = async () => {
+    if (!customMsg.trim()) return;
+    await addDoc(collection(db, 'notifications'), {
+      recipientId: uid,
+      text: customMsg,
+      type: 'system',
+      read: false,
+      createdAt: serverTimestamp()
+    });
+    setCustomMsg('');
+    alert("Mensaje inyectado en el móvil de la usuaria.");
+  };
+
   return (
-    <div className="admin-controls" style={{alignItems: 'center'}}>
-      <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="admin-number-input" style={{width: '60px', margin:0}} />
-      <button className="admin-btn" onClick={() => updateFollowers(false)}>- Seg</button>
-      <button className="admin-btn" onClick={() => updateFollowers(true)}>+ Seg</button>
+    <div className="admin-controls" style={{flexDirection: 'column', alignItems: 'flex-start', width: '100%'}}>
+      <div style={{display: 'flex', alignItems: 'center', gap: '5px'}}>
+        <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} className="admin-number-input" style={{width: '60px', margin:0}} />
+        <button className="admin-btn" onClick={() => updateFollowers(false)}>- Seg</button>
+        <button className="admin-btn" onClick={() => updateFollowers(true)}>+ Seg</button>
+      </div>
+      <div className="admin-notif-row">
+        <input type="text" placeholder="Inyectar sugerencia..." value={customMsg} onChange={e => setCustomMsg(e.target.value)} className="admin-notif-input" />
+        <button className="admin-btn" onClick={sendPsychologicalMessage}>👁️ Enviar</button>
+      </div>
     </div>
   );
 };
@@ -96,7 +143,7 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
   }
 
   const handleDoubleTap = () => {
-    if (!isLikedByMe) toggleLike(post.id, likedByArray);
+    if (!isLikedByMe) toggleLike(post.id, likedByArray, post.authorId);
     setShowHeart(true);
     setTimeout(() => setShowHeart(false), 800);
   };
@@ -106,6 +153,19 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
     if (!commentText.trim()) return;
     const newComment = { id: Date.now().toString() + Math.random(), authorId: user.uid, text: commentText.trim() };
     await updateDoc(doc(db, 'posts', post.id), { comments: [...commentsArray, newComment] });
+    
+    // 🚨 Notificación de Comentario
+    if (post.authorId !== user.uid) {
+      const myName = usersMap[user.uid]?.name || "Alguien";
+      await addDoc(collection(db, 'notifications'), {
+        recipientId: post.authorId,
+        text: `${myName} ha comentado: "${commentText.trim()}"`,
+        type: 'like',
+        read: false,
+        createdAt: serverTimestamp()
+      });
+    }
+    
     setCommentText('');
     setExpandedComments(true); 
   };
@@ -158,7 +218,7 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
       
       <div className="post-footer" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
         <div style={{display: 'flex', gap: '20px', alignItems: 'center'}}>
-          <div onClick={() => toggleLike(post.id, likedByArray)} style={{cursor:'pointer', fontSize:'1.4rem'}}>
+          <div onClick={() => toggleLike(post.id, likedByArray, post.authorId)} style={{cursor:'pointer', fontSize:'1.4rem'}}>
             {isLikedByMe ? '❤️' : '🤍'} <span style={{fontSize:'1rem', color:'var(--text-main)'}}>{likedByArray.length}</span>
           </div>
           <div onClick={() => setShowComments(!showComments)} style={{cursor:'pointer', fontSize:'1.4rem', filter: showComments ? 'opacity(0.5)' : 'none'}}>
@@ -167,7 +227,7 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
         </div>
 
         {likersText && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '5px'}}>{likersText}</div>}
-        {isAdmin && <AdminPostControls postId={post.id} likedByArray={likedByArray} />}
+        {isAdmin && <AdminPostControls postId={post.id} likedByArray={likedByArray} authorId={post.authorId} />}
       </div>
 
       {showComments && (
@@ -221,8 +281,6 @@ const Feed = ({ user, isAdmin }) => {
 
   const [activeFilter, setActiveFilter] = useState('Todas');
   const [selectedCampaignForUpload, setSelectedCampaignForUpload] = useState('General');
-  
-  // ✨ ESTADO PARA LA PAGINACIÓN DINÁMICA (Empezamos mostrando 15)
   const [postLimit, setPostLimit] = useState(15);
 
   useEffect(() => {
@@ -231,17 +289,14 @@ const Feed = ({ user, isAdmin }) => {
       const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
       setUsersMap(uMap);
     });
-    
-    // ✨ LA CONSULTA AHORA USA EL LÍMITE DINÁMICO
     const unsubPosts = onSnapshot(query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(postLimit)), (snap) => {
       setPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-    
     const unsubCamps = onSnapshot(query(collection(db, 'campaigns'), orderBy('createdAt', 'desc')), (snap) => {
       setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return () => { unsubUsers(); unsubPosts(); unsubCamps(); };
-  }, [user, postLimit]); // ✨ Si el límite cambia, se actualiza la descarga
+  }, [user, postLimit]); 
 
   const getUploadText = (progress) => {
     if (progress < 25) return "Analizando contenido...";
@@ -253,11 +308,8 @@ const Feed = ({ user, isAdmin }) => {
 
   const handlePublish = async () => {
     if (!text && !mediaFile) return;
-    setUploading(true);
-    setUploadProgress(0);
-
-    let mediaURL = null;
-    let mediaType = null;
+    setUploading(true); setUploadProgress(0);
+    let mediaURL = null; let mediaType = null;
 
     if (mediaFile) {
       const isVideo = mediaFile.type.startsWith('video/');
@@ -265,12 +317,10 @@ const Feed = ({ user, isAdmin }) => {
       
       if (isVideo) {
         const sizeInMB = mediaFile.size / (1024 * 1024);
-        const LIMITE_MB = 50; // PORTERO A 50MB
-        
+        const LIMITE_MB = 50; 
         if (sizeInMB > LIMITE_MB) { 
-          alert(`¡Tu ego es demasiado grande! Este vídeo pesa ${sizeInMB.toFixed(1)}MB (El máximo es ${LIMITE_MB}MB). Córtalo o bájale la calidad en tu galería antes de subirlo.`);
-          setUploading(false);
-          return; 
+          alert(`Este vídeo pesa ${sizeInMB.toFixed(1)}MB (El máximo es ${LIMITE_MB}MB).`);
+          setUploading(false); return; 
         }
       }
 
@@ -280,47 +330,44 @@ const Feed = ({ user, isAdmin }) => {
       try {
         await new Promise((resolve, reject) => {
           uploadTask.on('state_changed',
-            (snapshot) => {
-              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-              setUploadProgress(Math.round(progress));
-            },
-            (error) => {
-              alert("Hubo un fallo de conexión al subir el archivo.");
-              setUploading(false);
-              reject(error);
-            },
-            async () => {
-              mediaURL = await getDownloadURL(uploadTask.snapshot.ref);
-              resolve();
-            }
+            (snapshot) => setUploadProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)),
+            (error) => { alert("Fallo de conexión."); setUploading(false); reject(error); },
+            async () => { mediaURL = await getDownloadURL(uploadTask.snapshot.ref); resolve(); }
           );
         });
-      } catch (error) {
-        return; 
-      }
+      } catch (error) { return; }
     }
 
     await addDoc(collection(db, 'posts'), {
       text: text, mediaURL: mediaURL, mediaType: mediaType, authorId: user.uid, campaignName: selectedCampaignForUpload, likedBy: [], comments: [], createdAt: serverTimestamp()
     });
     
-    setText(''); setMediaFile(null); setSelectedCampaignForUpload('General'); 
-    setUploading(false); setUploadProgress(0);
+    setText(''); setMediaFile(null); setSelectedCampaignForUpload('General'); setUploading(false); setUploadProgress(0);
   };
 
-  const toggleLike = async (postId, currentLikedBy) => {
+  // ✨ MOTOR DE LIKES (Ahora envía notificaciones entre jugadoras)
+  const toggleLike = async (postId, currentLikedBy, authorId) => {
     const postRef = doc(db, 'posts', postId);
     if (currentLikedBy.includes(user.uid)) {
       await updateDoc(postRef, { likedBy: currentLikedBy.filter(uid => uid !== user.uid) });
     } else {
       await updateDoc(postRef, { likedBy: [...currentLikedBy, user.uid] });
+      // 🚨 Notificación de Like real (si no es a ti mismo)
+      if (authorId !== user.uid) {
+        const myName = usersMap[user.uid]?.name || "Alguien";
+        await addDoc(collection(db, 'notifications'), {
+          recipientId: authorId,
+          text: `A ${myName} le ha gustado tu publicación.`,
+          type: 'like',
+          read: false,
+          createdAt: serverTimestamp()
+        });
+      }
     }
   };
 
   const handleDeletePost = async (postId) => {
-    if (window.confirm("¿Seguro que quieres eliminar esta publicación?")) {
-      await deleteDoc(doc(db, 'posts', postId));
-    }
+    if (window.confirm("¿Seguro que quieres eliminar esta publicación?")) await deleteDoc(doc(db, 'posts', postId));
   };
 
   const displayedPosts = activeFilter === 'Todas' ? posts : posts.filter(post => post.campaignName === activeFilter);
@@ -328,7 +375,6 @@ const Feed = ({ user, isAdmin }) => {
   return (
     <div>
       <h1 className="page-title">Feed</h1>
-
       <div className="horizontal-scroll">
         <div className={`tag-pill ${activeFilter === 'Todas' ? 'active' : ''}`} onClick={() => setActiveFilter('Todas')}>Todas</div>
         <div className={`tag-pill ${activeFilter === 'General' ? 'active' : ''}`} onClick={() => setActiveFilter('General')}>General</div>
@@ -341,20 +387,12 @@ const Feed = ({ user, isAdmin }) => {
         {uploading && (
           <div className="upload-overlay">
             <div className="upload-progress-text">{getUploadText(uploadProgress)}</div>
-            <div className="upload-bar-bg">
-              <div className="upload-bar-fill" style={{ width: `${uploadProgress}%` }}></div>
-            </div>
+            <div className="upload-bar-bg"><div className="upload-bar-fill" style={{ width: `${uploadProgress}%` }}></div></div>
             <div className="upload-percentage">{uploadProgress}%</div>
           </div>
         )}
-
         <textarea className="post-input" placeholder="¿Qué quieres compartir hoy?" value={text} onChange={(e) => setText(e.target.value)} rows="3" />
-        
-        {mediaFile && (
-          <p style={{fontSize: '0.8rem', color: '#4A3265', marginBottom: '10px'}}>
-            ✓ {mediaFile.type.startsWith('video/') ? 'Vídeo' : 'Foto'} adjuntado
-          </p>
-        )}
+        {mediaFile && <p style={{fontSize: '0.8rem', color: '#4A3265', marginBottom: '10px'}}>✓ {mediaFile.type.startsWith('video/') ? 'Vídeo' : 'Foto'} adjuntado</p>}
         
         <div style={{marginBottom: '15px'}}>
           <span style={{fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '5px'}}>Etiqueta tu publicación:</span>
@@ -380,14 +418,63 @@ const Feed = ({ user, isAdmin }) => {
           {displayedPosts.map(post => (
             <PostItem key={post.id} post={post} user={user} usersMap={usersMap} isAdmin={isAdmin} toggleLike={toggleLike} handleDeletePost={handleDeletePost} />
           ))}
-          
-          {/* ✨ BOTÓN DE CARGAR MÁS POSTS (Añade 15 al límite actual) */}
           {posts.length >= postLimit && (
-            <button className="load-more-btn" onClick={() => setPostLimit(postLimit + 15)}>
-              Cargar publicaciones anteriores
-            </button>
+            <button className="load-more-btn" onClick={() => setPostLimit(postLimit + 15)}>Cargar publicaciones anteriores</button>
           )}
         </>
+      )}
+    </div>
+  );
+};
+
+// ✨ PANTALLA NUEVA: ACTIVIDAD (CENTRO DE NOTIFICACIONES)
+const Actividad = ({ user }) => {
+  const [notifications, setNotifications] = useState([]);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'notifications'), where("recipientId", "==", user.uid), orderBy("createdAt", "desc"), limit(50));
+    
+    const unsub = onSnapshot(q, (snap) => {
+      const notifs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setNotifications(notifs);
+      
+      // Al abrir la pantalla, quema la dopamina y marca todas como leídas en la nube
+      snap.docs.forEach(docSnap => {
+        if (docSnap.data().read === false) {
+          updateDoc(doc(db, 'notifications', docSnap.id), { read: true });
+        }
+      });
+    });
+    return () => unsub();
+  }, [user]);
+
+  const getIcon = (type) => {
+    if (type === 'like') return '❤️';
+    if (type === 'follower') return '👤';
+    if (type === 'system') return '👁️';
+    return '🔔';
+  };
+
+  return (
+    <div>
+      <h1 className="page-title">Tu Relevancia</h1>
+      <p style={{textAlign: 'center', color: 'var(--text-muted)', marginBottom: '30px', fontSize: '0.85rem'}}>
+        El algoritmo rastrea tu impacto social en The Castoras House.
+      </p>
+
+      {notifications.length === 0 ? (
+        <p style={{textAlign:'center', color:'var(--text-muted)'}}>Aún eres invisible. Publica algo para existir.</p>
+      ) : (
+        notifications.map(n => (
+          <div key={n.id} className={`notif-card ${n.read ? '' : 'notif-unread'}`}>
+            <div className="notif-icon">{getIcon(n.type)}</div>
+            <div className="notif-text-content">
+              <div>{n.text}</div>
+              <div className="post-date">{formatDate(n.createdAt)}</div>
+            </div>
+          </div>
+        ))
       )}
     </div>
   );
@@ -405,8 +492,7 @@ const Campanas = ({ isAdmin, user }) => {
       const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
       setUsersMap(uMap);
     });
-    const q = query(collection(db, 'campaigns'), orderBy('createdAt', 'desc'));
-    const unsubCamps = onSnapshot(q, (snap) => {
+    const unsubCamps = onSnapshot(query(collection(db, 'campaigns'), orderBy('createdAt', 'desc')), (snap) => {
       setCampaigns(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
     return () => { unsubUsers(); unsubCamps(); };
@@ -423,24 +509,13 @@ const Campanas = ({ isAdmin, user }) => {
 
   const toggleReaction = async (campId, currentReactions) => {
     const campRef = doc(db, 'campaigns', campId);
-    if (currentReactions.includes(user.uid)) {
-      await updateDoc(campRef, { reactions: currentReactions.filter(uid => uid !== user.uid) });
-    } else {
-      await updateDoc(campRef, { reactions: [...currentReactions, user.uid] });
-    }
-  };
-
-  const handleDeleteCampaign = async (campId) => {
-    if (window.confirm("¿Seguro que quieres eliminar esta misión permanentemente?")) {
-      await deleteDoc(doc(db, 'campaigns', campId));
-    }
+    if (currentReactions.includes(user.uid)) await updateDoc(campRef, { reactions: currentReactions.filter(uid => uid !== user.uid) });
+    else await updateDoc(campRef, { reactions: [...currentReactions, user.uid] });
   };
 
   return (
     <div>
       <h1 className="page-title">Campañas</h1>
-      <p style={{textAlign: 'center', color: 'var(--text-muted)', marginBottom: '30px'}}>Misiones activas de The Castoras House.</p>
-
       {isAdmin && (
         <div className="create-post-card" style={{border: '2px dashed var(--text-main)'}}>
           <h3 style={{marginBottom: '15px', fontFamily: 'Playfair Display'}}>⚡ Nueva Misión</h3>
@@ -453,43 +528,36 @@ const Campanas = ({ isAdmin, user }) => {
         </div>
       )}
 
-      {campaigns.length === 0 ? (
-        <p style={{textAlign: 'center', color: 'var(--text-muted)'}}>No hay misiones activas.</p>
-      ) : (
-        campaigns.map(camp => {
-          const reactionsArray = Array.isArray(camp.reactions) ? camp.reactions : [];
-          const isReactedByMe = reactionsArray.includes(user.uid);
-          
-          let likersText = '';
-          if (reactionsArray.length > 0) {
-            const names = reactionsArray.map(uid => uid === user.uid ? "ti" : (usersMap[uid]?.name?.split(' ')[0] || "Alguien"));
-            if (names.length === 1) likersText = `Apuntado por ${names[0]}`;
-            else if (names.length === 2) likersText = `Apuntado por ${names[0]} y ${names[1]}`;
-            else likersText = `Apuntado por ${names[0]}, ${names[1]} y ${names.length - 2} más`;
-          }
+      {campaigns.map(camp => {
+        const reactionsArray = Array.isArray(camp.reactions) ? camp.reactions : [];
+        const isReactedByMe = reactionsArray.includes(user.uid);
+        let likersText = '';
+        if (reactionsArray.length > 0) {
+          const names = reactionsArray.map(uid => uid === user.uid ? "ti" : (usersMap[uid]?.name?.split(' ')[0] || "Alguien"));
+          if (names.length === 1) likersText = `Apuntado por ${names[0]}`;
+          else if (names.length === 2) likersText = `Apuntado por ${names[0]} y ${names[1]}`;
+          else likersText = `Apuntado por ${names[0]}, ${names[1]} y ${names.length - 2} más`;
+        }
 
-          return (
-            <div key={camp.id} className="campaign-card">
-              <div className="campaign-header" style={{alignItems: 'center'}}>
-                <h2 className="campaign-title" style={{margin: 0}}>{camp.title}</h2>
-                <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
-                  {camp.reward && <span className="campaign-reward">{camp.reward}</span>}
-                  {isAdmin && (
-                    <button className="delete-post-btn" onClick={() => handleDeleteCampaign(camp.id)} style={{margin: 0}}>🗑️</button>
-                  )}
-                </div>
-              </div>
-              <p className="campaign-desc">{camp.description}</p>
-              <div className="reaction-row" style={{flexDirection: 'column', alignItems: 'flex-start', gap: '8px'}}>
-                <button className={`reaction-btn ${isReactedByMe ? 'active' : ''}`} onClick={() => toggleReaction(camp.id, reactionsArray)}>
-                  🔥 Me apunto <span>({reactionsArray.length})</span>
-                </button>
-                {likersText && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '500'}}>{likersText}</div>}
+        return (
+          <div key={camp.id} className="campaign-card">
+            <div className="campaign-header" style={{alignItems: 'center'}}>
+              <h2 className="campaign-title" style={{margin: 0}}>{camp.title}</h2>
+              <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
+                {camp.reward && <span className="campaign-reward">{camp.reward}</span>}
+                {isAdmin && <button className="delete-post-btn" onClick={() => deleteDoc(doc(db, 'campaigns', camp.id))} style={{margin: 0}}>🗑️</button>}
               </div>
             </div>
-          );
-        })
-      )}
+            <p className="campaign-desc">{camp.description}</p>
+            <div className="reaction-row" style={{flexDirection: 'column', alignItems: 'flex-start', gap: '8px'}}>
+              <button className={`reaction-btn ${isReactedByMe ? 'active' : ''}`} onClick={() => toggleReaction(camp.id, reactionsArray)}>
+                🔥 Me apunto <span>({reactionsArray.length})</span>
+              </button>
+              {likersText && <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '500'}}>{likersText}</div>}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -516,10 +584,7 @@ const Ranking = () => {
             <div className="ranking-pos">{getMedal(index)}</div>
             <img src={u.photoURL || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} alt="Avatar" className="ranking-avatar" />
             <div className="ranking-info">
-              <div style={{display: 'flex', alignItems: 'center'}}>
-                <span className="ranking-name">{u.name || u.email.split('@')[0]}</span>
-                <span className="mini-rank">{getRank(u.followers || 0)}</span>
-              </div>
+              <div style={{display: 'flex', alignItems: 'center'}}><span className="ranking-name">{u.name || u.email.split('@')[0]}</span><span className="mini-rank">{getRank(u.followers || 0)}</span></div>
               <span className="ranking-score">{u.followers || 0} seguidores</span>
             </div>
           </div>
@@ -541,23 +606,23 @@ const AdminControl = () => {
   }, []);
 
   const handleDeleteUser = async (uid, name) => {
-    if (window.confirm(`¿Seguro que quieres eliminar a ${name || 'este usuario'}? Esto lo borrará del ranking y del panel, aunque su cuenta de Firebase seguirá existiendo.`)) {
-      await deleteDoc(doc(db, 'users', uid));
-    }
+    if (window.confirm(`¿Seguro que quieres eliminar a ${name}?`)) await deleteDoc(doc(db, 'users', uid));
   };
 
   return (
     <div>
       <h1 className="page-title" style={{color: '#4A3265'}}>Panel Dios</h1>
       {usersList.map(u => (
-        <div key={u.id} className="admin-user-row">
-          <div style={{flex: 1}}>
+        <div key={u.id} className="admin-user-row" style={{alignItems: 'flex-start'}}>
+          <div style={{flex: 1, marginTop: '5px'}}>
             <div style={{fontWeight: 'bold', fontSize: '0.9rem'}}>{u.name || u.email.split('@')[0]}</div>
             <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{u.followers || 0} Seg.</div>
           </div>
-          <div style={{display: 'flex', alignItems: 'center'}}>
+          <div style={{display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '65%'}}>
+            <div style={{display: 'flex', width: '100%', justifyContent: 'flex-end'}}>
+              <button className="delete-post-btn" onClick={() => handleDeleteUser(u.id, u.name)} style={{marginLeft: '10px', marginTop: 0}}>🗑️</button>
+            </div>
             <AdminUserControls uid={u.id} currentFollowers={u.followers} />
-            <button className="delete-post-btn" onClick={() => handleDeleteUser(u.id, u.name)} style={{marginLeft: '10px', marginTop: 0}}>🗑️</button>
           </div>
         </div>
       ))}
@@ -573,30 +638,24 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
   const [newName, setNewName] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const fileInputRef = useRef(null);
-
-  // ✨ PAGINACIÓN DINÁMICA TAMBIÉN EN EL PERFIL (Empieza en 15)
   const [postLimit, setPostLimit] = useState(15);
 
   useEffect(() => {
     if (!user) return;
-    
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       const uMap = {}; snap.forEach(d => { uMap[d.id] = d.data(); });
       setUsersMap(uMap);
     });
-
     const userRef = doc(db, 'users', user.uid);
     const unsubUser = onSnapshot(userRef, (d) => {
       if (d.exists()) { setProfileData(d.data()); if (!newName) setNewName(d.data().name || ''); } 
       else setDoc(userRef, { name: "Nueva Influencer", photoURL: "", followers: 0, email: user.email });
     });
-    
-    // ✨ AHORA USA EL LÍMITE DINÁMICO
     const q = query(collection(db, 'posts'), where("authorId", "==", user.uid), orderBy('createdAt', 'desc'), limit(postLimit));
     const unsubPosts = onSnapshot(q, (s) => setUserPosts(s.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     
     return () => { unsubUsers(); unsubUser(); unsubPosts(); };
-  }, [user, postLimit]); // ✨ Se actualiza al pedir más posts
+  }, [user, postLimit]);
 
   const handlePhotoChange = async (e) => {
     const file = e.target.files[0];
@@ -613,18 +672,6 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
     if (!newName.trim()) return;
     await updateDoc(doc(db, 'users', user.uid), { name: newName });
     setIsEditingName(false);
-  };
-
-  const toggleLike = async (postId, currentLikedBy) => {
-    const postRef = doc(db, 'posts', postId);
-    if (currentLikedBy.includes(user.uid)) await updateDoc(postRef, { likedBy: currentLikedBy.filter(uid => uid !== user.uid) });
-    else await updateDoc(postRef, { likedBy: [...currentLikedBy, user.uid] });
-  };
-
-  const handleDeletePost = async (postId) => {
-    if (window.confirm("¿Seguro que quieres eliminar esta publicación?")) {
-      await deleteDoc(doc(db, 'posts', postId));
-    }
   };
 
   return (
@@ -662,43 +709,45 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
           return mediaUrl ? (
             <div key={post.id} className="grid-item" style={{position: 'relative', overflow: 'hidden', backgroundColor: '#000'}}>
               {post.mediaType === 'video' ? (
-                <>
-                  <video src={mediaUrl} className="grid-item" style={{objectFit: 'cover'}} />
-                  <div className="video-icon">▶</div>
-                </>
-              ) : (
-                <img src={mediaUrl} alt="Post" className="grid-item" />
-              )}
+                <><video src={mediaUrl} className="grid-item" style={{objectFit: 'cover'}} /><div className="video-icon">▶</div></>
+              ) : (<img src={mediaUrl} alt="Post" className="grid-item" />)}
             </div>
           ) : (
-            <div key={post.id} className="grid-item" style={{display:'flex', alignItems:'center', justifyContent:'center', padding:'10px', fontSize:'0.7rem', textAlign: 'center'}}>
-              {post.text.substring(0,20)}...
-            </div>
+            <div key={post.id} className="grid-item" style={{display:'flex', alignItems:'center', justifyContent:'center', padding:'10px', fontSize:'0.7rem', textAlign: 'center'}}>{post.text.substring(0,20)}...</div>
           );
         })}
       </div>
 
-      {/* ✨ BOTÓN CARGAR MÁS EN EL PERFIL */}
-      {userPosts.length >= postLimit && (
-        <button className="load-more-btn" onClick={() => setPostLimit(postLimit + 15)}>
-          Cargar fotos anteriores
-        </button>
-      )}
-
-      <button onClick={handleLogout} className="login-btn" style={{width: '100%', background: '#EAEAEA', color: 'var(--text-main)', boxShadow: 'none', marginTop: '30px'}}>
-        Cerrar Sesión
-      </button>
+      {userPosts.length >= postLimit && <button className="load-more-btn" onClick={() => setPostLimit(postLimit + 15)}>Cargar fotos anteriores</button>}
+      <button onClick={handleLogout} className="login-btn" style={{width: '100%', background: '#EAEAEA', color: 'var(--text-main)', boxShadow: 'none', marginTop: '30px'}}>Cerrar Sesión</button>
     </div>
   );
 };
 
-const BottomNav = ({ isAdmin }) => {
+// ✨ MENÚ INFERIOR (Ahora escucha el Globito Rojo)
+const BottomNav = ({ user, isAdmin }) => {
   const location = useLocation();
   const currentPath = location.pathname;
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'notifications'), where("recipientId", "==", user.uid), where("read", "==", false));
+    const unsub = onSnapshot(q, (snap) => setUnreadCount(snap.docs.length));
+    return () => unsub();
+  }, [user]);
+
   return (
     <nav className="bottom-nav">
       <Link to="/" className={`nav-item ${currentPath === '/' ? 'active' : ''}`}><span className="nav-icon">📱</span><span>Feed</span></Link>
       <Link to="/campanas" className={`nav-item ${currentPath === '/campanas' ? 'active' : ''}`}><span className="nav-icon">🎯</span><span>Campañas</span></Link>
+      <Link to="/actividad" className={`nav-item ${currentPath === '/actividad' ? 'active' : ''}`}>
+        <div className="nav-icon-wrapper">
+          <span className="nav-icon">🔔</span>
+          {unreadCount > 0 && <span className="notification-badge">{unreadCount}</span>}
+        </div>
+        <span>Actividad</span>
+      </Link>
       <Link to="/ranking" className={`nav-item ${currentPath === '/ranking' ? 'active' : ''}`}><span className="nav-icon">🏆</span><span>Ranking</span></Link>
       <Link to="/perfil" className={`nav-item ${currentPath === '/perfil' ? 'active' : ''}`}><span className="nav-icon">👤</span><span>Perfil</span></Link>
       {isAdmin && <Link to="/admin" className={`nav-item ${currentPath === '/admin' ? 'active' : ''}`}><span className="nav-icon">👁️</span><span>Control</span></Link>}
@@ -736,12 +785,13 @@ function App() {
             <Routes>
               <Route path="/" element={<Feed user={user} isAdmin={isAdmin} />} />
               <Route path="/campanas" element={<Campanas isAdmin={isAdmin} user={user} />} />
+              <Route path="/actividad" element={<Actividad user={user} />} />
               <Route path="/ranking" element={<Ranking />} />
               <Route path="/perfil" element={<Perfil user={user} isAdmin={isAdmin} handleLogout={handleLogout} />} />
               {isAdmin && <Route path="/admin" element={<AdminControl />} />}
             </Routes>
           </main>
-          <BottomNav isAdmin={isAdmin} />
+          <BottomNav user={user} isAdmin={isAdmin} />
         </div>
       </Router>
     );
