@@ -2,11 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, serverTimestamp, where, deleteDoc } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytes, uploadBytesResumable, getDownloadURL } from "firebase/storage"; // ✨ CAMBIO AQUÍ
 import { auth, db, storage } from "./firebase";
 import './App.css';
 
-// ✨ LISTA DE NOMBRES INVENTADOS PARA LOS BOTS
 const FAKE_NAMES = [
   "María", "Laura", "Lucía", "Carmen", "Ana", "Marta", "Paula", "Elena", 
   "Clara", "Sofía", "Julia", "Alba", "Carla", "Sara", "Valeria", "Claudia", 
@@ -22,17 +21,14 @@ const getRank = (followers) => {
 
 const AdminPostControls = ({ postId, likedByArray }) => {
   const [amount, setAmount] = useState(10);
-  
   const addFakeLikes = async () => {
     if (amount <= 0) return;
     const bots = Array.from({length: amount}, () => {
-      // Elegimos un nombre al azar y lo guardamos en la ID del bot
       const randomName = FAKE_NAMES[Math.floor(Math.random() * FAKE_NAMES.length)];
       return `bot_${randomName}_${Math.random().toString(36).substring(2, 9)}`;
     });
     await updateDoc(doc(db, 'posts', postId), { likedBy: [...likedByArray, ...bots] });
   };
-  
   const removeFakeLikes = async () => {
     if (amount <= 0) return;
     const realLikes = likedByArray.filter(uid => !uid.startsWith('bot_'));
@@ -40,7 +36,6 @@ const AdminPostControls = ({ postId, likedByArray }) => {
     bots.splice(0, amount);
     await updateDoc(doc(db, 'posts', postId), { likedBy: [...realLikes, ...bots] });
   };
-
   return (
     <div className="admin-secret-likes">
       <span style={{fontSize:'0.7rem', color:'var(--text-muted)', display:'flex', alignItems:'center'}}>ADMIN:</span>
@@ -81,15 +76,13 @@ const PostItem = ({ post, user, usersMap, isAdmin, toggleLike, handleDeletePost 
   const mediaUrl = post.mediaURL || post.imageURL;
   const isVideo = post.mediaType === 'video';
 
-  // ✨ MAGIA: Traducimos los IDs de los bots a sus nombres asignados
   let likersText = '';
   if (likedByArray.length > 0) {
     const names = likedByArray.map(uid => {
       if (uid === user.uid) return "ti";
-      if (uid.startsWith('bot_')) return uid.split('_')[1]; // Extraemos el nombre realista que generó el Admin
-      return usersMap[uid]?.name?.split(' ')[0] || "Alguien"; // Si es un usuario real, cogemos su nombre
+      if (uid.startsWith('bot_')) return uid.split('_')[1];
+      return usersMap[uid]?.name?.split(' ')[0] || "Alguien";
     });
-
     if (names.length === 1) likersText = `Le gusta a ${names[0]}`;
     else if (names.length === 2) likersText = `Le gusta a ${names[0]} y ${names[1]}`;
     else likersText = `Le gusta a ${names[0]}, ${names[1]} y ${names.length - 2} más`;
@@ -212,6 +205,7 @@ const Feed = ({ user, isAdmin }) => {
   const [text, setText] = useState('');
   const [mediaFile, setMediaFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0); // ✨ NUEVO: Estado del porcentaje
   const fileInputRef = useRef(null);
 
   const [activeFilter, setActiveFilter] = useState('Todas');
@@ -232,9 +226,19 @@ const Feed = ({ user, isAdmin }) => {
     return () => { unsubUsers(); unsubPosts(); unsubCamps(); };
   }, [user]);
 
+  // ✨ FUNCIÓN DE TEXTOS CAMBIANTES
+  const getUploadText = (progress) => {
+    if (progress < 25) return "Analizando contenido...";
+    if (progress < 50) return "Calculando potencial de influencia...";
+    if (progress < 80) return "Verificando estándares de la agencia...";
+    if (progress < 100) return "El algoritmo está juzgando tu publicación...";
+    return "¡Procesando!";
+  };
+
   const handlePublish = async () => {
     if (!text && !mediaFile) return;
     setUploading(true);
+    setUploadProgress(0);
 
     let mediaURL = null;
     let mediaType = null;
@@ -242,16 +246,50 @@ const Feed = ({ user, isAdmin }) => {
     if (mediaFile) {
       const isVideo = mediaFile.type.startsWith('video/');
       mediaType = isVideo ? 'video' : 'image';
+      
+      if (isVideo) {
+        const sizeInMB = mediaFile.size / (1024 * 1024);
+        if (sizeInMB > 25) {
+          alert(`¡Tu ego es demasiado grande! Este vídeo pesa ${sizeInMB.toFixed(1)}MB (El máximo es 25MB). Córtalo o bájale la calidad en tu galería antes de subirlo.`);
+          setUploading(false);
+          return; 
+        }
+      }
+
       const fileRef = ref(storage, `posts/${Date.now()}_${mediaFile.name}`);
-      await uploadBytes(fileRef, mediaFile);
-      mediaURL = await getDownloadURL(fileRef);
+      
+      // ✨ NUEVO MOTOR DE CARGA CON TRACKING EN TIEMPO REAL
+      const uploadTask = uploadBytesResumable(fileRef, mediaFile);
+
+      try {
+        await new Promise((resolve, reject) => {
+          uploadTask.on('state_changed',
+            (snapshot) => {
+              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+              setUploadProgress(Math.round(progress));
+            },
+            (error) => {
+              alert("Hubo un fallo de conexión al subir el archivo.");
+              setUploading(false);
+              reject(error);
+            },
+            async () => {
+              mediaURL = await getDownloadURL(uploadTask.snapshot.ref);
+              resolve();
+            }
+          );
+        });
+      } catch (error) {
+        return; // Si falla, abortamos
+      }
     }
 
     await addDoc(collection(db, 'posts'), {
       text: text, mediaURL: mediaURL, mediaType: mediaType, authorId: user.uid, campaignName: selectedCampaignForUpload, likedBy: [], comments: [], createdAt: serverTimestamp()
     });
     
-    setText(''); setMediaFile(null); setSelectedCampaignForUpload('General'); setUploading(false);
+    setText(''); setMediaFile(null); setSelectedCampaignForUpload('General'); 
+    setUploading(false); setUploadProgress(0);
   };
 
   const toggleLike = async (postId, currentLikedBy) => {
@@ -284,6 +322,17 @@ const Feed = ({ user, isAdmin }) => {
       </div>
 
       <div className="create-post-card">
+        {/* ✨ CORTINA DE CARGA PSICOLÓGICA */}
+        {uploading && (
+          <div className="upload-overlay">
+            <div className="upload-progress-text">{getUploadText(uploadProgress)}</div>
+            <div className="upload-bar-bg">
+              <div className="upload-bar-fill" style={{ width: `${uploadProgress}%` }}></div>
+            </div>
+            <div className="upload-percentage">{uploadProgress}%</div>
+          </div>
+        )}
+
         <textarea className="post-input" placeholder="¿Qué quieres compartir hoy?" value={text} onChange={(e) => setText(e.target.value)} rows="3" />
         
         {mediaFile && (
@@ -305,7 +354,7 @@ const Feed = ({ user, isAdmin }) => {
         <div className="post-actions">
           <div className="upload-photo-btn" onClick={() => fileInputRef.current.click()}>📷 Multimedia</div>
           <input type="file" accept="image/*,video/*" ref={fileInputRef} style={{display:'none'}} onChange={(e) => setMediaFile(e.target.files[0])} />
-          <button onClick={handlePublish} className="login-btn" style={{marginTop:0, padding:'10px 20px'}} disabled={uploading}>{uploading ? 'Subiendo...' : 'Publicar'}</button>
+          <button onClick={handlePublish} className="login-btn" style={{marginTop:0, padding:'10px 20px'}} disabled={uploading}>Publicar</button>
         </div>
       </div>
 
@@ -526,7 +575,7 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
     if (!file) return;
     setUploadingAvatar(true);
     const fileRef = ref(storage, `avatars/${user.uid}_${Date.now()}`);
-    await uploadBytes(fileRef, file);
+    await uploadBytesResumable(fileRef, file); // También usa el nuevo método para fotos por si acaso
     const url = await getDownloadURL(fileRef);
     await updateDoc(doc(db, 'users', user.uid), { photoURL: url });
     setUploadingAvatar(false);

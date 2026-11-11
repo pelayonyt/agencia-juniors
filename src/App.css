@@ -826,3 +826,54 @@ input:focus {
 video.grid-item {
   object-fit: cover; /* En la cuadrícula del perfil sí forzamos el cuadrado perfecto para que quede estético */
 }
+
+/* --- PANTALLA DE CARGA PSICOLÓGICA --- */
+.create-post-card {
+  /* Asegúrate de que esta clase que ya existe tenga estas dos líneas: */
+  position: relative;
+  overflow: hidden;
+}
+
+.upload-overlay {
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(250, 250, 251, 0.95);
+  backdrop-filter: blur(5px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  text-align: center;
+}
+
+.upload-progress-text {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.1rem;
+  color: var(--text-main);
+  margin-bottom: 15px;
+  font-weight: 600;
+}
+
+.upload-bar-bg {
+  width: 90%;
+  height: 8px;
+  background: #EAEAEA;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.upload-bar-fill {
+  height: 100%;
+  background: var(--text-main);
+  transition: width 0.3s ease;
+}
+
+.upload-percentage {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+}
