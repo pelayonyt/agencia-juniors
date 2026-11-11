@@ -437,26 +437,37 @@ const Feed = ({ user, isAdmin }) => {
   );
 };
 
-// ✨ EL NUEVO MOTOR DE ESTADO CONGELADO DE NOTIFICACIONES
+// ✨ MOTOR DE NOTIFICACIONES BLINDADO (Sin bloqueos de Firebase)
 const Actividad = ({ user }) => {
   const [notifications, setNotifications] = useState([]);
-  const [frozenUnread, setFrozenUnread] = useState(new Set()); // Memoria visual temporal
+  const [frozenUnread, setFrozenUnread] = useState(new Set()); 
 
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, 'notifications'), where("recipientId", "==", user.uid), orderBy("createdAt", "desc"), limit(50));
+    
+    // ✨ Pedimos las notificaciones sin ordenar (para no enfadar a Firebase)
+    const q = query(collection(db, 'notifications'), where("recipientId", "==", user.uid));
     
     const unsub = onSnapshot(q, (snap) => {
-      const notifs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      let notifs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      
+      // ✨ Las ordenamos manualmente usando la memoria del teléfono
+      notifs.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis() || 0;
+        const timeB = b.createdAt?.toMillis() || 0;
+        return timeB - timeA;
+      });
+      
+      // Recortamos a las últimas 50
+      notifs = notifs.slice(0, 50);
       setNotifications(notifs);
       
       setFrozenUnread(prev => {
         const newSet = new Set(prev);
-        snap.docs.forEach(docSnap => {
-          if (docSnap.data().read === false) {
-            newSet.add(docSnap.id); // Guardamos la tarjeta como "rojita" visualmente
-            // Y le decimos a Firebase silenciosamente que ya la vio para quitar la burbuja
-            updateDoc(doc(db, 'notifications', docSnap.id), { read: true }).catch(()=>{});
+        notifs.forEach(n => {
+          if (n.read === false) {
+            newSet.add(n.id); 
+            updateDoc(doc(db, 'notifications', n.id), { read: true }).catch(()=>{});
           }
         });
         return newSet;
@@ -485,7 +496,6 @@ const Actividad = ({ user }) => {
         <p style={{textAlign:'center', color:'var(--text-muted)'}}>Aún eres invisible. Publica algo para existir.</p>
       ) : (
         notifications.map(n => {
-          // ✨ Mantiene el color vivo si acaba de ser leída, pero no si es vieja
           const isVisuallyUnread = n.read === false || frozenUnread.has(n.id);
           
           return (
@@ -668,6 +678,7 @@ const AdminControl = () => {
   );
 };
 
+// ✨ MOTOR DE PERFIL BLINDADO (Sin bloqueos de Firebase)
 const Perfil = ({ user, isAdmin, handleLogout }) => {
   const [profileData, setProfileData] = useState({ name: '', photoURL: '', followers: 0 });
   const [userPosts, setUserPosts] = useState([]);
@@ -689,8 +700,14 @@ const Perfil = ({ user, isAdmin, handleLogout }) => {
       if (d.exists()) { setProfileData(d.data()); if (!newName) setNewName(d.data().name || ''); } 
       else setDoc(userRef, { name: "Nueva Influencer", photoURL: "", followers: 0, email: user.email });
     });
-    const q = query(collection(db, 'posts'), where("authorId", "==", user.uid), orderBy('createdAt', 'desc'), limit(postLimit));
-    const unsubPosts = onSnapshot(q, (s) => setUserPosts(s.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+    
+    // ✨ Solucionado aquí también el bug del índice compuesto
+    const q = query(collection(db, 'posts'), where("authorId", "==", user.uid));
+    const unsubPosts = onSnapshot(q, (s) => {
+      let userP = s.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      userP.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+      setUserPosts(userP.slice(0, postLimit));
+    });
     
     return () => { unsubUsers(); unsubUser(); unsubPosts(); };
   }, [user, postLimit]);
@@ -770,8 +787,11 @@ const BottomNav = ({ user, isAdmin }) => {
 
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, 'notifications'), where("recipientId", "==", user.uid), where("read", "==", false));
-    const unsubNotifs = onSnapshot(q, (snap) => setUnreadCount(snap.docs.length));
+    const q = query(collection(db, 'notifications'), where("recipientId", "==", user.uid));
+    const unsubNotifs = onSnapshot(q, (snap) => {
+      const unread = snap.docs.filter(d => d.data().read === false);
+      setUnreadCount(unread.length);
+    });
     
     const unsubUser = onSnapshot(doc(db, 'users', user.uid), (d) => {
       if(d.exists()) setUnreadCamp(d.data().unreadCampaigns || false);
